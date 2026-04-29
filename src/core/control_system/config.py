@@ -1,0 +1,5 @@
+MAX_SPEED = 4
+MAX_YAW = 15
+P_YAW, I_YAW, D_YAW = 0.02, 0, 0
+P_ROLL, I_ROLL, D_ROLL = 0.22, 0, 0
+

@@ -1,0 +1,11 @@
+
+
+
+
+path: datasets/laser_red_only_v2
+train: images/train
+val: images/val
+test: images/test
+
+names:
+  0: laser_red

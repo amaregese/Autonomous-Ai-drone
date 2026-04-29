@@ -1,0 +1,1 @@
+from src.perception.detectors.yolo11_detector import *

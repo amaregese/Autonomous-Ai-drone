@@ -3,20 +3,22 @@ import time
 import argparse
 import cv2
 
-sys.path.insert(1, 'modules')
+sys.path.insert(1, 'src')
 
-from modules import lidar, control, detector_yolo11 as detector
-from modules import drone
-from modules.app_config import MAX_ALT, TRACKING_LOST_THRESHOLD
-from modules.display import (
+from src.sensors import lidar
+from src.core import control
+from src.perception.detectors import yolo11_detector as detector
+from src.core import drone
+from src.ui.app_config import MAX_ALT, TRACKING_LOST_THRESHOLD
+from src.ui.display import (
     WINDOW_NAME,
     annotate_selection_overlay,
     annotate_tracking_overlay,
     draw_detection_window,
     update_drone_visualizer_status,
 )
-from modules.navigation import FollowController
-from modules.tracking import TrackingSession
+from src.navigation import FollowController
+from src.perception.tracking import TrackingSession
 import keyboard
 
 # Args parser
@@ -27,7 +29,7 @@ parser.add_argument('--control', type=str, default='PID')
 parser.add_argument('--drone_connection', type=str, default=None)
 
 # Model selection arguments
-parser.add_argument('--general-model', type=str, default='YOLO/yolo11n.pt',
+parser.add_argument('--general-model', type=str, default='models/YOLO/yolo11n.pt',
                     help='Path to general YOLO model')
 parser.add_argument('--laser-model', type=str, default='runs/detect/laser_points_train/weights/best.pt',
                     help='Path to custom laser detection model')
@@ -132,7 +134,6 @@ def main_loop():
             continue
 
         height, width = image.shape[:2]
-        selected_obj = detector.get_selected_object()
 
         # Draw detection window (clean, no mode indicators)
         image = draw_detection_window(image, detections, detector)

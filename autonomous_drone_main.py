@@ -20,6 +20,7 @@ from src.ui.display import (
 )
 from src.navigation import FollowController
 from src.perception.tracking import TrackingSession
+from src.ui.video_stream import MJPEGStreamer
 import keyboard
 
 # Args parser
@@ -55,6 +56,7 @@ STATE = "takeoff"
 tracking_session = TrackingSession()
 follow_controller = FollowController()
 telemetry_log_counter = 0
+video_streamer = MJPEGStreamer(port=8080)
 
 
 def setup():
@@ -112,12 +114,15 @@ def setup():
         if args.mode == "flight":
             connection_string = '/dev/ttyACM0'
         elif args.mode == "sitl":
-            connection_string = 'udpin:0.0.0.0:14550'
+            connection_string = 'tcp:127.0.0.1:5762'
         else:
             connection_string = '192.168.1.96:14550'
 
     control.connect_drone(connection_string)
     control.set_flight_altitude(MAX_ALT)
+
+    if args.mode == "sitl":
+        video_streamer.start()
 
 
 def main_loop():
@@ -137,6 +142,9 @@ def main_loop():
         if image is None:
             time.sleep(0.01)
             continue
+
+        if args.mode == "sitl":
+            video_streamer.update_frame(image)
 
         height, width = image.shape[:2]
 
@@ -274,6 +282,7 @@ def land():
     control.land()
     detector.cleanup()
     control.close_visualizer()
+    video_streamer.stop()
     cv2.destroyAllWindows()
     print("Program ended")
     sys.exit(0)

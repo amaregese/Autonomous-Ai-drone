@@ -58,20 +58,37 @@ def connect_drone(connection_string, waitready=True, baud=57600):
 
     print(f"Mock: Connecting to vehicle on {connection_string}")
     _master = mavutil.mavlink_connection(connection_string, baud=baud)
-    _master.wait_heartbeat(timeout=15)
-    print(
-        f"Mock: Heartbeat received from system {_master.target_system} "
-        f"component {_master.target_component}"
-    )
+    try:
+        _master.wait_heartbeat(timeout=10)
+        print(
+            f"Mock: Heartbeat received from system {_master.target_system} "
+            f"component {_master.target_component}"
+        )
+    except Exception as e:
+        print(f"Mock: Heartbeat timeout - {e}")
+        raise RuntimeError(
+            f"Failed to connect to SITL at {connection_string}. "
+            "Make sure SITL is running with --out=tcp:127.0.0.1:5760"
+        )
     return _master
 
 
 def arm_and_takeoff(max_height):
     master = _get_master()
     _set_mode("GUIDED")
-    master.arducopter_arm()
-    master.motors_armed_wait()
-    print("Mock: Vehicle armed")
+    print("Mock: Requesting arming...")
+    master.mav.command_long_send(
+        master.target_system,
+        master.target_component,
+        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+        0,
+        1, 0, 0, 0, 0, 0, 0
+    )
+    ack = _wait_command_ack(mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM)
+    if ack and ack.result == mavutil.mavlink.MAV_RESULT_ACCEPTED:
+        print("Mock: Vehicle armed")
+    else:
+        print(f"Mock: Arm command result: {ack.result if ack else 'timeout'}")
 
     master.mav.command_long_send(
         master.target_system,
@@ -98,7 +115,7 @@ def land():
 
 def get_EKF_status():
     master = _get_master()
-    msg = master.recv_match(type="EKF_STATUS_REPORT", blocking=True, timeout=1)
+    msg = master.recv_match(type="EKF_STATUS_REPORT", blocking=False)
     if msg is None:
         return "Mock: EKF status unavailable"
     return f"Mock: EKF flags {msg.flags}"
@@ -106,7 +123,7 @@ def get_EKF_status():
 
 def get_battery_info():
     master = _get_master()
-    msg = master.recv_match(type="SYS_STATUS", blocking=True, timeout=1)
+    msg = master.recv_match(type="SYS_STATUS", blocking=False)
     if msg is None:
         return "Mock: Battery status unavailable"
     battery_remaining = getattr(msg, "battery_remaining", -1)
@@ -116,7 +133,7 @@ def get_battery_info():
 def get_version():
     master = _get_master()
     master.mav.autopilot_version_request_send(master.target_system, master.target_component)
-    msg = master.recv_match(type="AUTOPILOT_VERSION", blocking=True, timeout=1)
+    msg = master.recv_match(type="AUTOPILOT_VERSION", blocking=True, timeout=2)
     if msg is None:
         return "Mock: Version unavailable"
     return f"Mock: Flight software version {msg.flight_sw_version}"

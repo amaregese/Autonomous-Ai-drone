@@ -3,6 +3,7 @@ import time
 import argparse
 import cv2
 
+sys.path.insert(0, '.')
 sys.path.insert(1, 'src')
 
 from src.sensors import lidar
@@ -27,11 +28,13 @@ parser.add_argument('--debug_path', type=str, default="debug/run1")
 parser.add_argument('--mode', type=str, default='test')
 parser.add_argument('--control', type=str, default='PID')
 parser.add_argument('--drone_connection', type=str, default=None)
+parser.add_argument('--input-source', type=str, default='camera', choices=['camera', 'video'], help='Input source (default: camera)')
+parser.add_argument('--video-path', type=str, default=None, help='Path to video file (if input-source=video)')
 
 # Model selection arguments
-parser.add_argument('--general-model', type=str, default='models/YOLO/yolo11n.pt',
+parser.add_argument('--general-model', type=str, default='models/yolo11n.pt',
                     help='Path to general YOLO model')
-parser.add_argument('--laser-model', type=str, default='runs/detect/laser_points_train/weights/best.pt',
+parser.add_argument('--laser-model', type=str, default='models/yolo11_laser_points.pt',
                     help='Path to custom laser detection model')
 parser.add_argument('--model-mode', type=str, default='combined',
                     choices=['general', 'laser', 'combined'],
@@ -84,7 +87,9 @@ def setup():
     # Initialize with both models
     success = detector.initialize_detector(
         model_path=args.general_model,
-        laser_model_path=args.laser_model
+        laser_model_path=args.laser_model,
+        source=args.input_source,
+        video_path=args.video_path
     )
 
     if not success:

@@ -36,7 +36,7 @@ FRAME_SKIP_CAMERA = 1
 FRAME_SKIP_VIDEO = 6
 
 # Video settings
-VIDEO_FOLDER = "test_videos"
+VIDEO_FOLDER = "data/videos"
 DEFAULT_WIDTH = 640
 DEFAULT_HEIGHT = 480
 
@@ -58,8 +58,8 @@ LASER_MIN_REACQUIRE_AREA_RATIO = 0.25  # Allow more size variation
 LASER_MAX_REACQUIRE_CENTER_SHIFT_RATIO = 0.6  # Allow more movement
 
 # Model paths
-GENERAL_MODEL_PATH = "YOLO/yolo11n.pt"
-LASER_MODEL_PATH = "runs/detect/laser_points_train/weights/best.pt"
+GENERAL_MODEL_PATH = "models/yolo11n.pt"
+LASER_MODEL_PATH = "models/yolo11_laser_points.pt"
 
 # Object size classification (for auto mode switching)
 SMALL_OBJECT_AREA_RATIO = 0.01  # Objects smaller than 1% of frame are considered "small"

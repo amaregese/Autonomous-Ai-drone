@@ -41,7 +41,7 @@ current_fps = 0.0
 
 # Model selection (keep internal, no display)
 USE_LASER_MODEL = False
-LASER_MODEL_PATH = "runs/detect/laser_points_train/weights/best.pt"
+LASER_MODEL_PATH = "models/yolo11_laser_points.pt"
 MODEL_MODE = "combined"  # Internal only, not shown on display
 
 
@@ -62,7 +62,7 @@ def _pick_unique_candidate(scored_candidates, minimum_score, uniqueness_margin):
     return best_match, best_score
 
 
-def initialize_detector(model_path="YOLO/yolo11n.pt", laser_model_path=None):
+def initialize_detector(model_path="models/yolo11n.pt", laser_model_path=None, source='camera', video_path=None):
     """Initialize both general and laser-specific models"""
     global cap, source_type, output_width, output_height, model, classes
     global laser_model, laser_classes, USE_LASER_MODEL, LASER_MODEL_PATH
@@ -94,7 +94,7 @@ def initialize_detector(model_path="YOLO/yolo11n.pt", laser_model_path=None):
         print(f"ℹ️ No laser model specified or file not found")
 
     # Initialize video capture
-    cap, source_type, output_width, output_height = initialize_capture()
+    cap, source_type, output_width, output_height = initialize_capture(source, video_path)
     return cap is not None
 
 

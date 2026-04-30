@@ -3,7 +3,7 @@ import os
 from ultralytics import YOLO
 
 
-def load_model(model_path="YOLO/yolo11n.pt"):
+def load_model(model_path="models/yolo11n.pt"):
     print(f"Loading YOLO model from: {model_path}")
     try:
         if not os.path.exists(model_path):

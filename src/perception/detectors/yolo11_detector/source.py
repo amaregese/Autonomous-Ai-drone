@@ -31,13 +31,8 @@ def select_video():
     return None
 
 
-def initialize_capture():
-    print("\nSelect input source:")
-    print("1 - Live Camera")
-    print("2 - Recorded Video")
-    choice = input("Enter choice: ").strip()
-
-    if choice == "1":
+def initialize_capture(source='camera', video_path=None):
+    if source == 'camera':
         cap = cv2.VideoCapture(0)
         if not cap.isOpened():
             print("Camera not found")
@@ -47,8 +42,7 @@ def initialize_capture():
         print("✓ Camera opened")
         return cap, "camera", DEFAULT_WIDTH, DEFAULT_HEIGHT
 
-    if choice == "2":
-        video_path = select_video()
+    if source == 'video':
         if video_path:
             cap = cv2.VideoCapture(video_path)
             if cap.isOpened():
@@ -56,6 +50,18 @@ def initialize_capture():
                 output_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                 print(f"✓ Video opened: {output_width}x{output_height}")
                 return cap, "video", output_width, output_height
+            else:
+                print(f"Failed to open video: {video_path}")
+                return None, None, DEFAULT_WIDTH, DEFAULT_HEIGHT
+        else:
+            video_path = select_video()
+            if video_path:
+                cap = cv2.VideoCapture(video_path)
+                if cap.isOpened():
+                    output_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    output_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    print(f"✓ Video opened: {output_width}x{output_height}")
+                    return cap, "video", output_width, output_height
 
     return None, None, DEFAULT_WIDTH, DEFAULT_HEIGHT
 

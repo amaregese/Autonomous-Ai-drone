@@ -6,12 +6,6 @@
   <component name="ChangeListManager">
     <list default="true" id="6d5c4ea0-df50-40cc-84e5-c3f78316449a" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/datasets/laser_red_only_v2/data.yaml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/datasets/laser_red_only_v2/videos/red_laser.mp4" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/models/YOLO/yolo11n.pt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/runs/detect/smoke_check2/results.csv" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/runs/detect/smoke_check2/weights/last.pt" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/test_videos/drone_view.mp4" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -179,7 +173,7 @@
       <workItem from="1777366576799" duration="14010000" />
       <workItem from="1777442183100" duration="9647000" />
       <workItem from="1777457169524" duration="10021000" />
-      <workItem from="1777527981293" duration="329000" />
+      <workItem from="1777527981293" duration="1098000" />
     </task>
     <servers />
   </component>

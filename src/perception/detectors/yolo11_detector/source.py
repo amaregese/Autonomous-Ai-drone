@@ -15,7 +15,7 @@ def list_videos():
 def select_video():
     videos = list_videos()
     if not videos:
-        print("No videos found in 'test_videos' folder")
+        print(f"No videos found in '{VIDEO_FOLDER}' folder")
         return None
 
     print("\nAvailable videos:")

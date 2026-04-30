@@ -21,7 +21,11 @@ from src.ui.display import (
 from src.navigation import FollowController
 from src.perception.tracking import TrackingSession
 from src.ui.video_stream import MJPEGStreamer
-import keyboard
+
+try:
+    import keyboard
+except ImportError:
+    keyboard = None
 
 # Args parser
 parser = argparse.ArgumentParser(description='Drive autonomous with dual-model support')
@@ -73,7 +77,9 @@ def setup():
     print("=" * 70 + "\n")
 
     print("Connecting LiDAR...")
-    lidar.connect_lidar("/dev/ttyTHS1")
+    import platform
+    lidar_port = "/dev/ttyTHS1" if platform.system() != "Windows" else "COM3"
+    lidar.connect_lidar(lidar_port)
 
     print("Setting up detector...")
 
@@ -133,7 +139,7 @@ def main_loop():
     tracking_session.reset_loss_state()
 
     while True:
-        if keyboard.is_pressed('q'):
+        if keyboard and keyboard.is_pressed('q'):
             land()
             break
 

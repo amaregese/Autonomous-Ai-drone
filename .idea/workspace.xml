@@ -6,6 +6,10 @@
   <component name="ChangeListManager">
     <list default="true" id="6d5c4ea0-df50-40cc-84e5-c3f78316449a" name="Changes" comment="">
       <change beforePath="$PROJECT_DIR$/autonomous_drone_main.py" beforeDir="false" afterPath="$PROJECT_DIR$/autonomous_drone_main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/drone_backend/sitl.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/drone_backend/sitl.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/source.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/source.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/sensors/camera.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/sensors/camera.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/sensors/zed.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/sensors/zed.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/ui/video_stream.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/ui/video_stream.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -174,7 +178,7 @@
       <workItem from="1777366576799" duration="14010000" />
       <workItem from="1777442183100" duration="9647000" />
       <workItem from="1777457169524" duration="10021000" />
-      <workItem from="1777527981293" duration="10271000" />
+      <workItem from="1777527981293" duration="11214000" />
     </task>
     <servers />
   </component>
@@ -186,6 +190,6 @@
     <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$laser_model_test_video.coverage" NAME="laser_model_test_video Coverage Results" MODIFIED="1777374075241" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Tools" />
     <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$pytest_in_test_laser_model_py.coverage" NAME="pytest in test_laser_model.py Coverage Results" MODIFIED="1777372514593" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$laser_model.coverage" NAME="laser_model_test Coverage Results" MODIFIED="1777372770909" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Tools" />
-    <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$autonomous_drone_main.coverage" NAME="autonomous_drone_main Coverage Results" MODIFIED="1777540136754" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$autonomous_drone_main.coverage" NAME="autonomous_drone_main Coverage Results" MODIFIED="1777543340042" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

@@ -1,4 +1,8 @@
-import pyzed.sl as sl
+try:
+    import pyzed.sl as sl
+except ImportError:
+    sl = None
+
 import time
 import cv2
 
@@ -15,37 +19,42 @@ MIN_RANGE = 1
 
 def set_params(performance_mode=True):
     global init_parameters
+    if sl is None:
+        return
     init_parameters = sl.InitParameters()
     init_parameters.depth_mode = sl.DEPTH_MODE.PERFORMANCE if performance_mode else sl.DEPTH_MODE.ULTRA
-    init_parameters.depth_minimum_distance = MIN_RANGE #1 Meter minimum detection distance
+    init_parameters.depth_minimum_distance = MIN_RANGE
     init_parameters.coordinate_units = sl.UNIT.METER
-
 
 def set_runtime_params():
     global runtime
+    if sl is None:
+        return
     runtime = sl.RuntimeParameters()
 
 def close():
     global depth_camera
-    depth_camera.close()
-
+    if depth_camera is not None:
+        depth_camera.close()
 
 def init_zed(performance_mode=True):
     global depth_mat, rgb_mat, depth_camera, initialized
 
+    if sl is None:
+        print("ZED SDK not installed")
+        return None
+
     set_params(performance_mode)
-    depth_camera = sl.Camera(init_parameters)
+    depth_camera = sl.Camera()
 
     if not depth_camera.is_opened():
-        status = depth_camera.open()
+        status = depth_camera.open(init_parameters)
+        if status != sl.ERROR_CODE.SUCCESS:
+            print(f"ZED open failed: {repr(status)}")
+            return None
         initialized = True
-    if status != sl.ERROR_CODE.SUCCESS:
-        print(repr(status))
 
     set_runtime_params()
-    #depth_camera.set_depth_max_range_value(MAX_RANGE)
-    depth_camera.open()
-
     depth_mat = sl.Mat()
     rgb_mat = sl.Mat()
     return depth_camera
@@ -53,6 +62,8 @@ def init_zed(performance_mode=True):
 
 def get_depth_image():
     global depth_mat
+    if depth_camera is None or runtime is None:
+        return None
     image = None
     err = depth_camera.grab(runtime)
     if err == sl.ERROR_CODE.SUCCESS:
@@ -62,6 +73,8 @@ def get_depth_image():
 
 def get_rgbd_image():
     global depth_mat, rgb_mat
+    if depth_camera is None or runtime is None:
+        return None
     depth_image = None
     rgb_image = None
     err = depth_camera.grab(runtime)
@@ -76,10 +89,11 @@ def get_rgbd_image():
         return bgrd
     return None
 
-        
+
 if __name__ == "__main__":
     init_zed()
     while True:
         bgrd = get_rgbd_image()
-        cv2.imshow("BGRD" , bgrd)
-        cv2.waitKey(1)
+        if bgrd is not None:
+            cv2.imshow("BGRD" , bgrd)
+            cv2.waitKey(1)

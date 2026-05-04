@@ -27,6 +27,7 @@ class DroneVisualizer:
         self.lidar_on_target = False
         self.x_delta = 0
         self.y_delta = 0
+        self.lidar_dist = 0
         self.status_message = "OBJECT NOT SELECTED"
         self.status_color = (100, 100, 100)
         self.status_duration = 0
@@ -38,7 +39,18 @@ class DroneVisualizer:
         self.COLOR_TARGET = (0, 255, 0)
         self.COLOR_DISTANCE = (255, 255, 0)
         self.COLOR_GRID = (50, 50, 50)
+        self.quit_button_rect = (width - 80, height - 40, 60, 24)
+        self.quit_pressed = False
+        self.drone_status = "IDLE"
+        self.drone_status_color = (150, 150, 150)
         cv2.namedWindow(self.window_name)
+        cv2.setMouseCallback(self.window_name, self._handle_mouse)
+
+    def _handle_mouse(self, event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            bx, by, bw, bh = self.quit_button_rect
+            if bx <= x <= bx + bw and by <= y <= by + bh:
+                self.quit_pressed = True
 
     def set_status(self, message, color=(0, 255, 0), duration=0):
         if duration > 0:
@@ -67,13 +79,54 @@ class DroneVisualizer:
         self.target_distance = distance
         self.has_target = bool(name and name != "No Target" and confidence > 0)
 
-    def update_telemetry(self, fps=0, yaw=0, forward=0, lidar_on_target=False, x_delta=0, y_delta=0):
+    def update_telemetry(self, fps=0, yaw=0, forward=0, lidar_on_target=False, x_delta=0, y_delta=0, lidar_dist=0):
         self.fps = fps
         self.yaw = yaw
         self.forward = forward
         self.lidar_on_target = lidar_on_target
         self.x_delta = x_delta
         self.y_delta = y_delta
+        self.lidar_dist = lidar_dist
+        self._update_drone_status()
+
+    def _update_drone_status(self):
+        yaw_threshold = 0.05
+        forward_threshold = 0.05
+        lateral_threshold = 0.05
+        lidar_far_threshold = 5.0
+        is_far = self.lidar_on_target and self.lidar_dist > lidar_far_threshold
+        has_forward_cmd = self.forward > forward_threshold
+        has_backward_cmd = self.forward < -forward_threshold
+        is_moving_forward = has_forward_cmd or is_far
+        yaw_dir = "YAW_LEFT" if self.yaw < -yaw_threshold else ("YAW_RIGHT" if self.yaw > yaw_threshold else "")
+        fwd_dir = "MOVING_FORWARD" if is_moving_forward else ("MOVING_BACKWARD" if has_backward_cmd else "")
+        lat_dir = "STRAFE_LEFT" if self.x_delta < -lateral_threshold else ("STRAFE_RIGHT" if self.x_delta > lateral_threshold else "")
+        if fwd_dir and lat_dir and yaw_dir:
+            status = f"{fwd_dir} | {lat_dir} | {yaw_dir}"
+            color = (0, 200, 255)
+        elif fwd_dir and lat_dir:
+            status = f"{fwd_dir} | {lat_dir}"
+            color = (0, 200, 255)
+        elif fwd_dir and yaw_dir:
+            status = f"{fwd_dir} | {yaw_dir}"
+            color = (0, 200, 255)
+        elif lat_dir and yaw_dir:
+            status = f"{lat_dir} | {yaw_dir}"
+            color = (0, 200, 255)
+        elif fwd_dir:
+            status = fwd_dir
+            color = (0, 255, 0)
+        elif lat_dir:
+            status = lat_dir
+            color = (0, 255, 200)
+        elif yaw_dir:
+            status = yaw_dir
+            color = (255, 200, 0)
+        else:
+            status = "HOVERING"
+            color = (0, 255, 0)
+        self.drone_status = status
+        self.drone_status_color = color
 
     def get_distance_to_target(self):
         if not self.has_target:
@@ -188,14 +241,45 @@ class DroneVisualizer:
 
         bottom_y = self.height - 70
         cv2.putText(img, self.status_message, (10, bottom_y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.status_color, 2)
-        cv2.putText(img, "Click on any object to track | Click another to switch | Press 'q' to quit", (10, self.height - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        cv2.putText(img, "Click to track | Double-click for nested object | Press 'q' to quit", (10, self.height - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
         cv2.putText(img, f"Drone: ({self.drone_x:.0f}, {self.drone_z:.0f})", (self.width - 200, bottom_y), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
         target_label = f"Target: ({self.target_x:.0f}, {self.target_z:.0f})" if self.has_target else "Target: --"
         pixel_dist_label = f"Dist: {distance:.0f} px" if self.has_target else "Dist: 0 px"
         cv2.putText(img, target_label, (self.width - 200, bottom_y + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (150, 150, 150), 1)
         cv2.putText(img, pixel_dist_label, (self.width - 200, bottom_y + 40), cv2.FONT_HERSHEY_SIMPLEX, 0.4, distance_color, 1)
         self.draw_temp_message(img)
+        self._draw_status_panel(img)
+        self._draw_quit_button(img)
         cv2.imshow(self.window_name, img)
+
+    def _draw_status_panel(self, img):
+        status = self.drone_status
+        color = self.drone_status_color
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        text_size = cv2.getTextSize(status, font, 0.55, 2)[0]
+        padding = 12
+        icon_radius = 6
+        panel_w = text_size[0] + padding * 2 + icon_radius * 2 + 8
+        panel_h = 32
+        panel_x = (self.width - panel_w) // 2
+        panel_y = 8
+        cv2.rectangle(img, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), (30, 30, 30), -1)
+        cv2.rectangle(img, (panel_x, panel_y), (panel_x + panel_w, panel_y + panel_h), color, 1)
+        icon_cx = panel_x + padding + icon_radius
+        icon_cy = panel_y + panel_h // 2
+        cv2.circle(img, (icon_cx, icon_cy), icon_radius, color, -1)
+        text_x = panel_x + padding * 2 + icon_radius * 2
+        text_y = panel_y + panel_h // 2 + 6
+        cv2.putText(img, status, (text_x, text_y), font, 0.55, (255, 255, 255), 1)
+
+    def _draw_quit_button(self, img):
+        bx, by, bw, bh = self.quit_button_rect
+        cv2.rectangle(img, (bx, by), (bx + bw, by + bh), (0, 0, 120), -1)
+        cv2.rectangle(img, (bx, by), (bx + bw, by + bh), (255, 255, 255), 1)
+        text_size = cv2.getTextSize("QUIT", cv2.FONT_HERSHEY_SIMPLEX, 0.45, 1)[0]
+        text_x = bx + (bw - text_size[0]) // 2
+        text_y = by + (bh + text_size[1]) // 2
+        cv2.putText(img, "QUIT", (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
 
     def should_quit(self):
         return cv2.waitKey(1) & 0xFF == ord("q")

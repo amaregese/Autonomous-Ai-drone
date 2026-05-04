@@ -19,9 +19,9 @@ def update_visualizer_target(x, z, name="Target", confidence=0, distance=0):
         state.visualizer.set_target(x, z, name, confidence, distance)
 
 
-def update_telemetry_from_track(fps, yaw, forward, lidar_on_target, x_delta, y_delta):
+def update_telemetry_from_track(fps, yaw, forward, lidar_on_target, x_delta, y_delta, lidar_dist=0):
     if state.visualizer:
-        state.visualizer.update_telemetry(fps, yaw, forward, lidar_on_target, x_delta, y_delta)
+        state.visualizer.update_telemetry(fps, yaw, forward, lidar_on_target, x_delta, y_delta, lidar_dist)
 
 
 def draw_visualizer():

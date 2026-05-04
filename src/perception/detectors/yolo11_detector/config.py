@@ -33,7 +33,7 @@ CURRENT_MODEL_MODE = 'combined'  # Options: 'general', 'laser', 'auto', 'combine
 
 # Frame skipping for performance
 FRAME_SKIP_CAMERA = 1
-FRAME_SKIP_VIDEO = 6
+FRAME_SKIP_VIDEO = 1
 
 # Video settings
 VIDEO_FOLDER = "data/videos"

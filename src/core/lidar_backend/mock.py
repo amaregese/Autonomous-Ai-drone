@@ -4,7 +4,7 @@ last_object_area = None
 
 
 def connect_lidar(port):
-    print(f"Mock: Connecting to lidar on {port} (Windows mode)")
+    print(f"Mock: Connecting to lidar on {port} (Ubuntu mode)")
 
 
 def read_lidar_distance():

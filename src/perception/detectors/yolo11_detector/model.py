@@ -9,6 +9,7 @@ def load_model(model_path="models/yolo11n.pt"):
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Model weights not found: {model_path}")
         model = YOLO(model_path)
+        model.to("cpu")
         classes = model.names
         print(f"✓ YOLO loaded! {len(classes)} classes available")
         return model, classes

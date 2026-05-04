@@ -5,13 +5,23 @@ class TrackingSession:
     def __init__(self):
         self.mouse_click_x = -1
         self.mouse_click_y = -1
+        self.mouse_click_type = "single"
+        self.last_click_time = 0
+        self.double_click_threshold = 0.3
         self.lost_shown = False
         self.last_target_name = None
 
     def handle_mouse_event(self, event, x, y, flags, param):
+        import time
         if event == cv2.EVENT_LBUTTONDOWN:
+            current_time = time.time()
+            if current_time - self.last_click_time < self.double_click_threshold:
+                self.mouse_click_type = "double"
+            else:
+                self.mouse_click_type = "single"
             self.mouse_click_x = x
             self.mouse_click_y = y
+            self.last_click_time = current_time
 
     def has_pending_click(self):
         return self.mouse_click_x != -1 and self.mouse_click_y != -1
@@ -19,6 +29,7 @@ class TrackingSession:
     def clear_click(self):
         self.mouse_click_x = -1
         self.mouse_click_y = -1
+        self.mouse_click_type = "single"
 
     def find_object_at_click(self, detections):
         for obj in detections:
@@ -26,11 +37,25 @@ class TrackingSession:
                 return obj
         return None
 
+    def find_innermost_object(self, detections):
+        candidates = []
+        for obj in detections:
+            if obj.Left <= self.mouse_click_x <= obj.Right and obj.Top <= self.mouse_click_y <= obj.Bottom:
+                candidates.append(obj)
+        if not candidates:
+            return None
+        candidates.sort(key=lambda o: o.area)
+        return candidates[0]
+
     def process_click(self, detections, detector, control):
         if not self.has_pending_click():
             return
 
-        clicked_obj = self.find_object_at_click(detections)
+        if self.mouse_click_type == "double":
+            clicked_obj = self.find_innermost_object(detections)
+        else:
+            clicked_obj = self.find_object_at_click(detections)
+
         previous_obj = detector.get_selected_object()
 
         if clicked_obj:

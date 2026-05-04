@@ -1,7 +1,9 @@
+import os
 import time
 import cv2
 import numpy as np
 from pathlib import Path
+from contextlib import contextmanager
 
 from src.perception.detectors.yolo11_detector import config
 from src.perception.detectors.yolo11_detector.matching import (
@@ -13,6 +15,19 @@ from src.perception.detectors.yolo11_detector.matching import (
 from src.perception.detectors.yolo11_detector.model import load_model
 from src.perception.detectors.yolo11_detector.source import initialize_capture, read_frame
 from src.perception.detectors.yolo11_detector.types import Detection
+
+
+@contextmanager
+def _suppress_stderr():
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    old_stderr = os.dup(2)
+    os.dup2(devnull, 2)
+    os.close(devnull)
+    try:
+        yield
+    finally:
+        os.dup2(old_stderr, 2)
+        os.close(old_stderr)
 
 # Global variables
 cap = None
@@ -68,7 +83,8 @@ def initialize_detector(model_path="models/yolo11n.pt", laser_model_path=None, s
     global laser_model, laser_classes, USE_LASER_MODEL, LASER_MODEL_PATH
 
     # Load general YOLO model
-    model, classes = load_model(model_path)
+    with _suppress_stderr():
+        model, classes = load_model(model_path)
     if model is None:
         print(f"❌ Failed to load general model from {model_path}")
         return False
@@ -78,7 +94,8 @@ def initialize_detector(model_path="models/yolo11n.pt", laser_model_path=None, s
 
     # Load laser-specific model if provided
     if laser_model_path and Path(laser_model_path).exists():
-        laser_model, laser_classes = load_model(laser_model_path)
+        with _suppress_stderr():
+            laser_model, laser_classes = load_model(laser_model_path)
         if laser_model:
             print(f"✅ Loaded laser model: {laser_model_path}")
             if isinstance(laser_classes, dict):
@@ -164,13 +181,14 @@ def _predict_with_model(model_to_use, frame, is_laser_model=False):
     """Predict using specified model"""
     conf_threshold = config.LASER_CONFIDENCE_THRESHOLD if is_laser_model else config.CONFIDENCE_THRESHOLD
 
-    results = model_to_use.predict(
-        source=frame,
-        conf=conf_threshold,
-        iou=config.IOU_THRESHOLD,
-        imgsz=config.INFERENCE_IMG_SIZE,
-        verbose=False,
-    )
+    with _suppress_stderr():
+        results = model_to_use.predict(
+            source=frame,
+            conf=conf_threshold,
+            iou=config.IOU_THRESHOLD,
+            imgsz=config.INFERENCE_IMG_SIZE,
+            verbose=False,
+        )
 
     detections = []
     frame_height, frame_width = frame.shape[:2]
@@ -374,6 +392,10 @@ def get_detections():
 
 def get_image_size():
     return output_width, output_height
+
+
+def get_camera():
+    return cap, source_type
 
 
 def get_selected_object():

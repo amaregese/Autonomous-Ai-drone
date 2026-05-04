@@ -5,6 +5,10 @@ name = "pypi"
 
 [packages]
 opencv-python = "*"
+ultralytics = "*"
+numpy = "*"
+simple-pid = "*"
+pymavlink = "*"
 
 [dev-packages]
 

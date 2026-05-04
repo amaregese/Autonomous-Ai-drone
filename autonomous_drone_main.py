@@ -1,3 +1,6 @@
+import os
+os.environ['TORCH_NNPACK_DISABLE'] = '1'
+
 import sys
 import time
 import argparse
@@ -8,7 +11,10 @@ sys.path.insert(1, 'src')
 
 from src.sensors import lidar
 from src.core import control
+
+# Suppress NNPACK warnings during PyTorch import
 from src.perception.detectors import yolo11_detector as detector
+
 from src.core import drone
 from src.ui.app_config import MAX_ALT, TRACKING_LOST_THRESHOLD
 from src.ui.display import (
@@ -20,12 +26,7 @@ from src.ui.display import (
 )
 from src.navigation import FollowController
 from src.perception.tracking import TrackingSession
-from src.ui.video_stream import MJPEGStreamer
-
-try:
-    import keyboard
-except ImportError:
-    keyboard = None
+keyboard = None
 
 # Args parser
 parser = argparse.ArgumentParser(description='Drive autonomous with dual-model support')
@@ -53,6 +54,7 @@ parser.add_argument('--laser-conf-threshold', type=float, default=0.12,
 parser.add_argument('--iou-threshold', type=float, default=None)
 parser.add_argument('--min-box-area-ratio', type=float, default=None)
 parser.add_argument('--imgsz', type=int, default=None)
+parser.add_argument('--half', action='store_true', help='Use half-precision (FP16) for faster inference')
 
 args = parser.parse_args()
 
@@ -60,7 +62,6 @@ STATE = "takeoff"
 tracking_session = TrackingSession()
 follow_controller = FollowController()
 telemetry_log_counter = 0
-video_streamer = MJPEGStreamer(port=8080)
 
 
 def setup():
@@ -78,7 +79,13 @@ def setup():
 
     print("Connecting LiDAR...")
     import platform
-    lidar_port = "/dev/ttyTHS1" if platform.system() != "Windows" else "COM3"
+    system = platform.system()
+    if system == "Windows":
+        lidar_port = "COM3"
+    elif system == "Darwin":
+        lidar_port = "/dev/cu.usbserial"
+    else:
+        lidar_port = "/dev/ttyUSB0"
     lidar.connect_lidar(lidar_port)
 
     print("Setting up detector...")
@@ -127,8 +134,7 @@ def setup():
     control.connect_drone(connection_string)
     control.set_flight_altitude(MAX_ALT)
 
-    if args.mode == "sitl":
-        video_streamer.start()
+    cap, source_type = detector.get_camera()
 
 
 def main_loop():
@@ -139,18 +145,12 @@ def main_loop():
     tracking_session.reset_loss_state()
 
     while True:
-        if keyboard and keyboard.is_pressed('q'):
-            land()
-            break
 
         # Get detections from dual models
         detections, fps, image = detector.get_detections()
         if image is None:
             time.sleep(0.01)
             continue
-
-        if args.mode == "sitl":
-            video_streamer.update_frame(image)
 
         height, width = image.shape[:2]
 
@@ -201,6 +201,7 @@ def main_loop():
                 movement["lidar_on_target"],
                 movement["x_delta"],
                 movement["y_delta"],
+                movement["lidar_dist"],
             )
 
             # Show loss status
@@ -247,6 +248,11 @@ def main_loop():
         cv2.imshow(WINDOW_NAME, image)
         control.draw_visualizer()
 
+        if control.is_quit_requested():
+            control.reset_quit_flag()
+            land()
+            break
+
         # Handle keyboard input
         key = cv2.waitKey(1) & 0xFF
         if key == ord('q'):
@@ -288,7 +294,6 @@ def land():
     control.land()
     detector.cleanup()
     control.close_visualizer()
-    video_streamer.stop()
     cv2.destroyAllWindows()
     print("Program ended")
     sys.exit(0)
@@ -317,6 +322,7 @@ print("=" * 70)
 print("\nControls:")
 print("  • 'q' - Quit")
 print("  • CLICK on any detected object to start tracking")
+print("  • DOUBLE-CLICK to select inner/nested objects")
 print("\nModel Switching (Console only):")
 print("  • 'g' - Switch to GENERAL detection mode")
 print("  • 'l' - Switch to LASER detection mode")

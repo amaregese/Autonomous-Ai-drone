@@ -56,6 +56,17 @@ def get_visualizer():
     return state.visualizer
 
 
+def is_quit_requested():
+    if state.visualizer:
+        return state.visualizer.quit_pressed
+    return False
+
+
+def reset_quit_flag():
+    if state.visualizer:
+        state.visualizer.quit_pressed = False
+
+
 def set_visualizer_status(message, color=(0, 255, 0), duration=0):
     if state.visualizer:
         state.visualizer.set_status(message, color, duration)

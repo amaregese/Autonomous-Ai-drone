@@ -1,7 +1,7 @@
 import collections
 
 from src.sensors import lidar
-from src.perception import vision
+from src.perception.vision_utils.geometry import point_in_rectangle
 from src.ui.app_config import (
     FORWARD_BRAKE_ZONE,
     FORWARD_DEADBAND,
@@ -66,7 +66,7 @@ class FollowController:
         x_delta = (center[0] - width / 2) / width
         y_delta = (center[1] - height / 2) / height
 
-        lidar_on_target = vision.point_in_rectangle(
+        lidar_on_target = point_in_rectangle(
             (width / 2, height / 2),
             selected_obj.Left,
             selected_obj.Right,

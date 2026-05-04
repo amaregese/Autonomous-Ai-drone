@@ -5,12 +5,158 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="6d5c4ea0-df50-40cc-84e5-c3f78316449a" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Pipfile" beforeDir="false" afterPath="$PROJECT_DIR$/Pipfile" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/data_plotter.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/get_current_gps.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/h5_to_onnx.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/h5_to_tensorrt.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/laser_model_test_image.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/laser_model_test_video.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/test.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/train_custom_yolo.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/train_laser_points_yolo.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/YOLO/best.pt" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/autonomous_drone_main.py" beforeDir="false" afterPath="$PROJECT_DIR$/autonomous_drone_main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/data.yaml" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/test/IMG_20250415_114516_jpg.rf.6b1e48c871af292adfa4fcf86a6b1155.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/test/IMG_20250415_114517_jpg.rf.6f929071164683fb7a3c8ed01ed7554c.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/test/IMG_20250415_114518_jpg.rf.4f6c85ea209bdb1826f3b6d6ff5ab00c.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/test/IMG_20250415_114521_jpg.rf.2f869e7011a60147c8e77762faeea252.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/test/IMG_20250415_114523_jpg.rf.e7e8bfd58c51b0c410456a316f208c2e.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/test/IMG_20250415_114524_jpg.rf.7718963fa882e668fb0e85134fdd3dc1.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/test/IMG_20250415_114525_jpg.rf.e4e1ea08b7076c302eb957bc500993c0.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114101_jpg.rf.b32e971f12b17adfd9cdffe53978670b.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114107_jpg.rf.88923c28fe02a7aa78affcae394c32ce.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114108_jpg.rf.a47438ffe41d7b904e4c63777c800c77.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114109_jpg.rf.ee34b1c48d67b34c247b1448e7be2b37.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114111_jpg.rf.53581c3ed5eb9cefb673e10e4337887c.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114113_jpg.rf.513d3bc28cdeefe409fd6762b9eed727.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114114_jpg.rf.ef893916288633dcc3e8608d3f598977.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114128_jpg.rf.f687d915c96685b63c02d3e9c8e722df.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114146_jpg.rf.861fc291ef908aac0b7f1614bb0443bc.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114147_jpg.rf.95cb818b7831dfdd214e5a6d819ce981.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114152_jpg.rf.ecc5a2175ba4beeb4b7dd39f65c564ac.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114153_jpg.rf.9acd36382a908f679781b539a24fdcf3.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114156_jpg.rf.a42c66218dea3a0fdd11100097175bbd.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114200_jpg.rf.e820f2212363c0bdb4d46db3b564bdd8.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114214_jpg.rf.f5430e23bb9c1b20a28f86ea74f3f6df.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114216_jpg.rf.50a113f0337d6c911c114768ad8f75b7.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114218_jpg.rf.818f3eca1ac68701944f3296a9b77a13.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114220_jpg.rf.9ac3acb9113feb07e057de11ea056c13.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114222_jpg.rf.004ab3e173cf6e99549ce15433d6dd81.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114225_jpg.rf.d7f9f3618c68e925d7f2e66b7ad09123.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114309_jpg.rf.ad19e00d98f041b81af9c81b2e1aba10.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114317_jpg.rf.0c61c70088c0acb7b2d2f49b70dadd4a.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114318_jpg.rf.74bebab8fc581120063384cc54637f55.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114319_jpg.rf.c4c640058fe65bf540b27a49eeffa0aa.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114320_jpg.rf.3a455d7a2f312a5d99f4732d33df9a42.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114322_jpg.rf.2a3871670182d15feddd0fb6ebba226f.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114323_jpg.rf.20e834ceddb8e18a4ba9bb7a06cde572.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114330_jpg.rf.3ff981d6c5471e60e465a0943c8fc9a5.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114332_jpg.rf.1d030e1f613601ae7a06b416be21c8e7.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114333_jpg.rf.c275ff58def6bee9c381f39ac7a289ca.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114334_jpg.rf.f15494dbcc95836324d89893633d2b86.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114335_jpg.rf.80f7b3cd11b7d5dc75459e302f47ed6f.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114337_jpg.rf.44dc64a52f6c01e39014fb85ac6e2104.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114356_jpg.rf.0e5f25bc52666b02678ca3a8d81afaaa.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114358_jpg.rf.3131d100598cea55f8252514a12861b4.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114400_jpg.rf.e79beba23e37a1586018885fab028676.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114402_jpg.rf.066b5145c9b5af95094f2c648e8efdef.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114403_jpg.rf.13c3d18c0bfec33a5086b1f9c03ce23b.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114422_jpg.rf.0830852935fad6639b9cb25689044134.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114425_jpg.rf.33feca90837566fef7f6ff1db30b2785.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114427_jpg.rf.6a9138f5030010b6747c90a0d5c0e083.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114429_jpg.rf.a053ee2b059a6c7a2d4e255038e2a7a6.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114431_jpg.rf.e2c782dd7b59c6bb2041530f64cc2314.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/train/IMG_20250415_114434_jpg.rf.368d94dc707277523915d418a8415e80.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/val/IMG_20250415_114437_jpg.rf.1a99bd88fb6f82745216e75c08cdf14f.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/val/IMG_20250415_114440_jpg.rf.e98ebde9f72e66925362105b02b02f46.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/val/IMG_20250415_114444_jpg.rf.f93158a5f18d09310b5fa147bf37dd50.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/val/IMG_20250415_114512_jpg.rf.20a573a6ceee6de23d80f0aa7022fddc.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/images/val/IMG_20250415_114515_jpg.rf.4f55b3df59f34020250137b830fa5872.jpg" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/test/IMG_20250415_114516_jpg.rf.6b1e48c871af292adfa4fcf86a6b1155.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/test/IMG_20250415_114517_jpg.rf.6f929071164683fb7a3c8ed01ed7554c.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/test/IMG_20250415_114518_jpg.rf.4f6c85ea209bdb1826f3b6d6ff5ab00c.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/test/IMG_20250415_114521_jpg.rf.2f869e7011a60147c8e77762faeea252.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/test/IMG_20250415_114523_jpg.rf.e7e8bfd58c51b0c410456a316f208c2e.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/test/IMG_20250415_114524_jpg.rf.7718963fa882e668fb0e85134fdd3dc1.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/test/IMG_20250415_114525_jpg.rf.e4e1ea08b7076c302eb957bc500993c0.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train.cache" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114101_jpg.rf.b32e971f12b17adfd9cdffe53978670b.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114107_jpg.rf.88923c28fe02a7aa78affcae394c32ce.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114108_jpg.rf.a47438ffe41d7b904e4c63777c800c77.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114109_jpg.rf.ee34b1c48d67b34c247b1448e7be2b37.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114111_jpg.rf.53581c3ed5eb9cefb673e10e4337887c.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114113_jpg.rf.513d3bc28cdeefe409fd6762b9eed727.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114114_jpg.rf.ef893916288633dcc3e8608d3f598977.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114128_jpg.rf.f687d915c96685b63c02d3e9c8e722df.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114146_jpg.rf.861fc291ef908aac0b7f1614bb0443bc.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114147_jpg.rf.95cb818b7831dfdd214e5a6d819ce981.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114152_jpg.rf.ecc5a2175ba4beeb4b7dd39f65c564ac.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114153_jpg.rf.9acd36382a908f679781b539a24fdcf3.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114156_jpg.rf.a42c66218dea3a0fdd11100097175bbd.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114200_jpg.rf.e820f2212363c0bdb4d46db3b564bdd8.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114214_jpg.rf.f5430e23bb9c1b20a28f86ea74f3f6df.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114216_jpg.rf.50a113f0337d6c911c114768ad8f75b7.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114218_jpg.rf.818f3eca1ac68701944f3296a9b77a13.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114220_jpg.rf.9ac3acb9113feb07e057de11ea056c13.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114222_jpg.rf.004ab3e173cf6e99549ce15433d6dd81.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114225_jpg.rf.d7f9f3618c68e925d7f2e66b7ad09123.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114309_jpg.rf.ad19e00d98f041b81af9c81b2e1aba10.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114317_jpg.rf.0c61c70088c0acb7b2d2f49b70dadd4a.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114318_jpg.rf.74bebab8fc581120063384cc54637f55.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114319_jpg.rf.c4c640058fe65bf540b27a49eeffa0aa.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114320_jpg.rf.3a455d7a2f312a5d99f4732d33df9a42.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114322_jpg.rf.2a3871670182d15feddd0fb6ebba226f.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114323_jpg.rf.20e834ceddb8e18a4ba9bb7a06cde572.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114330_jpg.rf.3ff981d6c5471e60e465a0943c8fc9a5.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114332_jpg.rf.1d030e1f613601ae7a06b416be21c8e7.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114333_jpg.rf.c275ff58def6bee9c381f39ac7a289ca.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114334_jpg.rf.f15494dbcc95836324d89893633d2b86.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114335_jpg.rf.80f7b3cd11b7d5dc75459e302f47ed6f.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114337_jpg.rf.44dc64a52f6c01e39014fb85ac6e2104.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114356_jpg.rf.0e5f25bc52666b02678ca3a8d81afaaa.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114358_jpg.rf.3131d100598cea55f8252514a12861b4.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114400_jpg.rf.e79beba23e37a1586018885fab028676.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114402_jpg.rf.066b5145c9b5af95094f2c648e8efdef.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114403_jpg.rf.13c3d18c0bfec33a5086b1f9c03ce23b.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114422_jpg.rf.0830852935fad6639b9cb25689044134.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114425_jpg.rf.33feca90837566fef7f6ff1db30b2785.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114427_jpg.rf.6a9138f5030010b6747c90a0d5c0e083.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114429_jpg.rf.a053ee2b059a6c7a2d4e255038e2a7a6.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114431_jpg.rf.e2c782dd7b59c6bb2041530f64cc2314.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/train/IMG_20250415_114434_jpg.rf.368d94dc707277523915d418a8415e80.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/val.cache" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/val/IMG_20250415_114437_jpg.rf.1a99bd88fb6f82745216e75c08cdf14f.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/val/IMG_20250415_114440_jpg.rf.e98ebde9f72e66925362105b02b02f46.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/val/IMG_20250415_114444_jpg.rf.f93158a5f18d09310b5fa147bf37dd50.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/val/IMG_20250415_114512_jpg.rf.20a573a6ceee6de23d80f0aa7022fddc.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/labels/val/IMG_20250415_114515_jpg.rf.4f55b3df59f34020250137b830fa5872.txt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/data/datasets/laser_red_only_v2/videos/red_laser.mp4" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/custom/best.pt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/unused/laser_red_only_v2_best.pt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/unused/laser_red_only_v2_last.pt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/unused/smoke_check2_best.pt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/unused/smoke_check2_last.pt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/unused/yolo11_laser_points_last.pt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/control_system/api.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/control_system/api.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/control_system/visualizer.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/control_system/visualizer.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/core/drone_backend/sitl.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/drone_backend/sitl.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/lidar_backend/mock.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/core/lidar_backend/mock.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/navigation/navigation.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/navigation/navigation.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/detector_mobilenet.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/api.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/api.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/model.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/model.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/source.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/source.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/sensors/camera.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/sensors/camera.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/sensors/zed.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/sensors/zed.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/ui/video_stream.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/ui/video_stream.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/tracking.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/perception/tracking.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/vision.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/vision_utils/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/perception/vision_utils/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/vision_utils/legacy.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/ui/video_stream.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/ui/visualizer_ui/drone_visualizer.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/ui/visualizer_ui/drone_visualizer.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -18,7 +164,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="191" />
+    <option name="cachedIndexableFilesCount" value="52" />
   </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
@@ -28,8 +174,22 @@
     </option>
   </component>
   <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="main" />
+      </map>
+    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {}
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/amaregese/Autonomous-Ai-drone.git&quot;,
+    &quot;accountId&quot;: &quot;72547d32-9347-4fe3-a8d9-ce4476c1bc7e&quot;
+  }
+}</component>
   <component name="McpProjectServerCommands">
     <commands />
     <urls />
@@ -57,17 +217,19 @@
     &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;SHELLCHECK.PATH&quot;: &quot;/home/amare-ub20046/.local/share/JetBrains/PyCharm2026.1/Shell Script/shellcheck&quot;,
     &quot;ai.playground.ignore.import.keys.banner.in.settings&quot;: &quot;true&quot;,
+    &quot;codeWithMe.voiceChat.enabledByDefault&quot;: &quot;false&quot;,
     &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;main&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;aaid&quot;,
     &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/amare/PycharmProjects/Autonomous-Ai-drone/test_videos&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/amare-ub20046/PycharmProjects/Autonomous-Ai-drone&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
     &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
     &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;ml.llm.AcpAgentsConfigurable&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;,
     &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
@@ -93,6 +255,7 @@
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="true" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="RUN_TOOL" value="" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/autonomous_drone_main.py" />
@@ -117,6 +280,7 @@
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="true" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="RUN_TOOL" value="" />
       <option name="SCRIPT_NAME" value="C:\Users\amare\PycharmProjects\Autonomous-Ai-drone\Tools\laser_model_test_image.py" />
@@ -141,6 +305,7 @@
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="true" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="RUN_TOOL" value="" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Tools/laser_model_test_video.py" />
@@ -163,8 +328,7 @@
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-9b0f141eb926-JavaScript-PY-253.32098.74" />
-        <option value="bundled-python-sdk-1cd77e80b48f-6d6dccd035ac-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-253.32098.74" />
+        <option value="bundled-python-sdk-024ed6589d45-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.23567.174" />
       </set>
     </attachedChunks>
   </component>
@@ -176,20 +340,68 @@
       <option name="presentableId" value="Default" />
       <updated>1777366575410</updated>
       <workItem from="1777366576799" duration="14010000" />
-      <workItem from="1777442183100" duration="9647000" />
-      <workItem from="1777457169524" duration="10021000" />
-      <workItem from="1777527981293" duration="11214000" />
+      <workItem from="1777442183100" duration="7733000" />
+      <workItem from="1777469401112" duration="1001000" />
+      <workItem from="1777470424118" duration="626000" />
+      <workItem from="1777540540427" duration="1324000" />
+      <workItem from="1777543835854" duration="5967000" />
+      <workItem from="1777549957751" duration="6387000" />
+      <workItem from="1777873212729" duration="4952000" />
+      <workItem from="1777880311993" duration="1225000" />
+      <workItem from="1777881913150" duration="753000" />
+      <workItem from="1777885246315" duration="296000" />
+      <workItem from="1777885725935" duration="1521000" />
+      <workItem from="1777889305398" duration="719000" />
+      <workItem from="1777891124726" duration="770000" />
     </task>
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State>
+              <option name="FILTERS">
+                <map>
+                  <entry key="branch">
+                    <value>
+                      <list>
+                        <option value="aaid" />
+                      </list>
+                    </value>
+                  </entry>
+                </map>
+              </option>
+            </State>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/.venv/lib/python3.12/site-packages/keyboard/_nixkeyboard.py</url>
+          <line>1</line>
+          <option name="timeStamp" value="1" />
+        </line-breakpoint>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/src/core/drone_backend/sitl.py</url>
+          <option name="timeStamp" value="2" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
+  </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
-    <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$train_laser_points_yolo.coverage" NAME="train_laser_points_yolo Coverage Results" MODIFIED="1777367440230" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Tools" />
     <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$laser_model_test_video.coverage" NAME="laser_model_test_video Coverage Results" MODIFIED="1777374075241" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Tools" />
+    <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$autonomous_drone_main.coverage" NAME="autonomous_drone_main Coverage Results" MODIFIED="1777889796126" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$train_laser_points_yolo.coverage" NAME="train_laser_points_yolo Coverage Results" MODIFIED="1777367440230" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Tools" />
     <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$pytest_in_test_laser_model_py.coverage" NAME="pytest in test_laser_model.py Coverage Results" MODIFIED="1777372514593" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$laser_model.coverage" NAME="laser_model_test Coverage Results" MODIFIED="1777372770909" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Tools" />
-    <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$autonomous_drone_main.coverage" NAME="autonomous_drone_main Coverage Results" MODIFIED="1777543340042" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
   </component>
 </project>

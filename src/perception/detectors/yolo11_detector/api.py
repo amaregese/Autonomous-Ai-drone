@@ -281,8 +281,9 @@ def _update_selected_object(detections, frame):
     if not same_class or lost_frame_count > config.TARGET_MEMORY_FRAMES:
         return
 
+    use_predicted_center = lost_frame_count < 30
     predicted_center = None
-    if last_known_center is not None:
+    if use_predicted_center and last_known_center is not None:
         predicted_center = (
             int(last_known_center[0] + (last_known_velocity[0] * min(lost_frame_count, 10))),
             int(last_known_center[1] + (last_known_velocity[1] * min(lost_frame_count, 10))),
@@ -294,16 +295,16 @@ def _update_selected_object(detections, frame):
         return
 
     scored_candidates = []
+    frame_diagonal = (frame.shape[1] ** 2 + frame.shape[0] ** 2) ** 0.5
     for detection in same_class:
         area_ratio = min(memory_features["area"], detection.area) / max(memory_features["area"], detection.area, 1)
         if area_ratio < config.MIN_REACQUIRE_AREA_RATIO:
             continue
 
-        if predicted_center is not None:
+        if use_predicted_center and predicted_center is not None:
             dx = detection.Center[0] - predicted_center[0]
             dy = detection.Center[1] - predicted_center[1]
             distance = (dx * dx + dy * dy) ** 0.5
-            frame_diagonal = (frame.shape[1] ** 2 + frame.shape[0] ** 2) ** 0.5
             if distance > frame_diagonal * config.MAX_REACQUIRE_CENTER_SHIFT_RATIO:
                 continue
 

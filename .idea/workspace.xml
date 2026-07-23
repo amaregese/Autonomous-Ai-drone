@@ -5,10 +5,68 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="6d5c4ea0-df50-40cc-84e5-c3f78316449a" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/Autonomous-Ai-drone.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/Autonomous-Ai-drone.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/api.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/api.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/matching.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/matching.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Pipfile" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Pipfile.lock" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/data_plotter.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/get_current_gps.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/h5_to_onnx.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/h5_to_tensorrt.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/laser_model_test_image.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/laser_model_test_video.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/test.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/train_custom_yolo.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/Tools/train_laser_points_yolo.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/YOLO/best.pt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/autonomous_drone_main.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/custom/best.pt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/yolo11_laser_points.pt" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/models/yolo11n.pt" beforeDir="false" afterPath="$PROJECT_DIR$/models/yolo11n.pt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/control.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/control_system/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/control_system/api.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/control_system/config.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/control_system/pid.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/control_system/state.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/control_system/visualizer.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/drone.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/drone_backend/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/drone_backend/api.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/drone_backend/mock_vehicle.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/drone_backend/sitl.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/lidar_backend/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/core/lidar_backend/mock.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/navigation/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/navigation/navigation.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/detector_mobilenet.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/api.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/config.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/matching.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/model.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/source.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/detectors/yolo11_detector/types.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/tracking.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/vision.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/vision_utils/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/vision_utils/geometry.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/perception/vision_utils/legacy.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/sensors/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/sensors/camera.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/sensors/lidar.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/sensors/zed.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/ui/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/ui/app_config.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/ui/display.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/ui/drone_visualizer.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/ui/video_stream.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/ui/visualizer_ui/__init__.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/ui/visualizer_ui/drone_visualizer.py" beforeDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -16,7 +74,7 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="EmbeddingIndexingInfo">
-    <option name="cachedIndexableFilesCount" value="191" />
+    <option name="cachedIndexableFilesCount" value="23" />
   </component>
   <component name="FileTemplateManagerImpl">
     <option name="RECENT_TEMPLATES">
@@ -26,8 +84,25 @@
     </option>
   </component>
   <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="antenna-tracker" />
+      </map>
+    </option>
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "amaregese"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/amaregese/Autonomous-Ai-drone.git",
+    "accountId": "eb6ad323-b786-41f7-b01c-50a388290311"
+  }
+}]]></component>
   <component name="McpProjectServerCommands">
     <commands />
     <urls />
@@ -49,6 +124,7 @@
     "Python.laser_model.executor": "Run",
     "Python.laser_model_test.executor": "Run",
     "Python.laser_model_test_video.executor": "Run",
+    "Python.main.executor": "Run",
     "Python.train_laser_points_yolo.executor": "Run",
     "RunOnceActivity.MCP Project settings loaded": "true",
     "RunOnceActivity.ShowReadmeOnStart": "true",
@@ -56,10 +132,12 @@
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.typescript.service.memoryLimit.init": "true",
     "ai.playground.ignore.import.keys.banner.in.settings": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
     "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
     "git-widget-placeholder": "aaid2",
+    "ignore.virus.scanning.warn.message": "true",
     "junie.onboarding.icon.badge.shown": "true",
-    "last_opened_file_path": "C:/Users/amare/PycharmProjects/Autonomous-Ai-drone/test_videos",
+    "last_opened_file_path": "D:/PycharmProjects/Autonomous-Ai-drone",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
@@ -77,7 +155,7 @@
       <recent name="C:\Users\amare\PycharmProjects\Autonomous-Ai-drone\datasets\laser_red_only_v2\videos" />
     </key>
   </component>
-  <component name="RunManager" selected="Python.autonomous_drone_main">
+  <component name="RunManager" selected="Python.main">
     <configuration name="autonomous_drone_main" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="Autonomous-Ai-drone" />
       <option name="ENV_FILES" value="" />
@@ -87,10 +165,12 @@
         <env name="PYTHONUNBUFFERED" value="1" />
       </envs>
       <option name="SDK_HOME" value="" />
+      <option name="SDK_NAME" value="Pipenv (Autonomous-Ai-drone) (2)" />
       <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
-      <option name="IS_MODULE_SDK" value="true" />
+      <option name="IS_MODULE_SDK" value="false" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="true" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="RUN_TOOL" value="" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/autonomous_drone_main.py" />
@@ -115,6 +195,7 @@
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="true" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="RUN_TOOL" value="" />
       <option name="SCRIPT_NAME" value="C:\Users\amare\PycharmProjects\Autonomous-Ai-drone\Tools\laser_model_test_image.py" />
@@ -139,6 +220,7 @@
       <option name="IS_MODULE_SDK" value="true" />
       <option name="ADD_CONTENT_ROOTS" value="true" />
       <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="true" />
       <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
       <option name="RUN_TOOL" value="" />
       <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Tools/laser_model_test_video.py" />
@@ -150,19 +232,46 @@
       <option name="INPUT_FILE" value="" />
       <method v="2" />
     </configuration>
+    <configuration name="main" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="Autonomous-Ai-drone" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="SDK_NAME" value="Python 3.12 (Autonomous-Ai-drone)" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="DEBUG_JUST_MY_CODE" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="RUN_TOOL" value="" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/main.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
     <recent_temporary>
       <list>
-        <item itemvalue="Python.autonomous_drone_main" />
+        <item itemvalue="Python.main" />
         <item itemvalue="Python.laser_model_test_video" />
         <item itemvalue="Python.laser_model_test_image" />
+        <item itemvalue="Python.autonomous_drone_main" />
+        <item itemvalue="Python.main" />
       </list>
     </recent_temporary>
   </component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
-        <option value="bundled-js-predefined-d6986cc7102b-9b0f141eb926-JavaScript-PY-253.32098.74" />
-        <option value="bundled-python-sdk-1cd77e80b48f-6d6dccd035ac-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-253.32098.74" />
+        <option value="bundled-python-sdk-c6d794e1806d-5bd6d13a2a75-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-262.8665.309" />
       </set>
     </attachedChunks>
   </component>
@@ -183,11 +292,22 @@
   <component name="TypeScriptGeneratedFilesManager">
     <option name="version" value="3" />
   </component>
+  <component name="XDebuggerManager">
+    <breakpoint-manager>
+      <breakpoints>
+        <line-breakpoint enabled="true" suspend="THREAD" type="python-line">
+          <url>file://$PROJECT_DIR$/src/core/drone_backend/sitl.py</url>
+          <option name="timeStamp" value="2" />
+        </line-breakpoint>
+      </breakpoints>
+    </breakpoint-manager>
+  </component>
   <component name="com.intellij.coverage.CoverageDataManagerImpl">
     <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$train_laser_points_yolo.coverage" NAME="train_laser_points_yolo Coverage Results" MODIFIED="1777367440230" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Tools" />
-    <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$laser_model_test_video.coverage" NAME="laser_model_test_video Coverage Results" MODIFIED="1777374075241" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Tools" />
     <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$pytest_in_test_laser_model_py.coverage" NAME="pytest in test_laser_model.py Coverage Results" MODIFIED="1777372514593" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$autonomous_drone_main.coverage" NAME="autonomous_drone_main Coverage Results" MODIFIED="1779265902559" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
     <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$laser_model.coverage" NAME="laser_model_test Coverage Results" MODIFIED="1777372770909" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Tools" />
-    <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$autonomous_drone_main.coverage" NAME="autonomous_drone_main Coverage Results" MODIFIED="1777889784628" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$main.coverage" NAME="main Coverage Results" MODIFIED="1780579751099" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/Autonomous_Ai_drone$laser_model_test_video.coverage" NAME="laser_model_test_video Coverage Results" MODIFIED="1777374075241" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Tools" />
   </component>
 </project>

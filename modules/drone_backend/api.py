@@ -62,26 +62,11 @@ def send_movement_command_YAW(angle):
     backend = _get_backend()
     if backend is not None:
         return backend.send_movement_command_YAW(angle)
-    direction = "RIGHT" if angle > 0 else "LEFT" if angle < 0 else "STOP"
-    print(f"Mock: Yaw command {angle:.2f} deg/s -> Rotating {direction}")
+    pass
 
 
 def send_movement_command_XYA(x, y, altitude):
     backend = _get_backend()
     if backend is not None:
         return backend.send_movement_command_XYA(x, y, altitude)
-    if y > 0:
-        movement = f"FORWARD at {abs(y):.2f} m/s"
-    elif y < 0:
-        movement = f"BACKWARD at {abs(y):.2f} m/s"
-    else:
-        movement = "HOVERING"
-
-    if x > 0:
-        lateral = f"RIGHT at {abs(x):.2f} m/s"
-    elif x < 0:
-        lateral = f"LEFT at {abs(x):.2f} m/s"
-    else:
-        lateral = "CENTERED"
-
-    print(f"Mock: Move -> {movement} | {lateral} | Alt: {altitude:.1f}m")
+    pass

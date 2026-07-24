@@ -1,72 +1,77 @@
-import os
+import threading
 
 import cv2
 
-from modules.yolo11_detector.config import DEFAULT_HEIGHT, DEFAULT_WIDTH, VIDEO_FOLDER
+from modules.yolo11_detector.config import DEFAULT_HEIGHT, DEFAULT_WIDTH
 
 
-def list_videos():
-    if not os.path.exists(VIDEO_FOLDER):
-        os.makedirs(VIDEO_FOLDER, exist_ok=True)
-        return []
-    return [f for f in os.listdir(VIDEO_FOLDER) if f.lower().endswith((".mp4", ".avi", ".mov", ".mkv"))]
-
-
-def select_video():
-    videos = list_videos()
-    if not videos:
-        print("No videos found in 'test_videos' folder")
-        return None
-
-    print("\nAvailable videos:")
-    for i, video_name in enumerate(videos, start=1):
-        print(f"  {i}. {video_name}")
-
+def _try_open_and_read(index, result):
     try:
-        choice = int(input("Select video number: ")) - 1
-        if 0 <= choice < len(videos):
-            return os.path.join(VIDEO_FOLDER, videos[choice])
+        cap = cv2.VideoCapture(index)
+        if cap.isOpened():
+            ret, frame = cap.read()
+            if ret and frame is not None:
+                result[index] = (cap, frame.shape[1], frame.shape[0])
+                return
+            cap.release()
+        else:
+            cap.release()
     except Exception:
         pass
-    return None
+    result[index] = None
 
 
 def initialize_capture():
-    print("\nSelect input source:")
-    print("1 - Live Camera")
-    print("2 - Recorded Video")
-    choice = input("Enter choice: ").strip()
+    # Fast path: try camera 0 directly (most common case)
+    probe_result = {}
+    t = threading.Thread(target=_try_open_and_read, args=(0, probe_result))
+    t.daemon = True
+    t.start()
+    t.join(timeout=5)
 
-    if choice == "1":
-        cap = cv2.VideoCapture(0)
-        if not cap.isOpened():
-            print("Camera not found")
-            return None, None, DEFAULT_WIDTH, DEFAULT_HEIGHT
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, DEFAULT_WIDTH)
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, DEFAULT_HEIGHT)
-        print("✓ Camera opened")
-        return cap, "camera", DEFAULT_WIDTH, DEFAULT_HEIGHT
+    if probe_result.get(0) is not None:
+        cap, w, h = probe_result[0]
+        print(f"Camera 0 opened ({w}x{h})")
+        return cap, "camera", w, h
 
-    if choice == "2":
-        video_path = select_video()
-        if video_path:
-            cap = cv2.VideoCapture(video_path)
-            if cap.isOpened():
-                output_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                output_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                print(f"✓ Video opened: {output_width}x{output_height}")
-                return cap, "video", output_width, output_height
+    # Camera 0 failed — scan for available cameras
+    print("Camera 0 not available, scanning...")
+    available = []
+    for i in range(1, 5):
+        result_i = {}
+        t = threading.Thread(target=_try_open_and_read, args=(i, result_i))
+        t.daemon = True
+        t.start()
+        t.join(timeout=3)
+        if result_i.get(i) is not None:
+            available.append(i)
+            probe_result[i] = result_i[i]
 
-    return None, None, DEFAULT_WIDTH, DEFAULT_HEIGHT
+    if not available:
+        print("No cameras found")
+        return None, None, DEFAULT_WIDTH, DEFAULT_HEIGHT
+
+    if len(available) == 1:
+        index = available[0]
+        cap, w, h = probe_result[index]
+        print(f"Single camera found (index {index})")
+        return cap, "camera", w, h
+
+    print(f"\n{len(available)} cameras found:")
+    for i, idx in enumerate(available, start=1):
+        print(f"  {i}. Camera {idx}")
+    try:
+        choice = int(input("Select camera number: ")) - 1
+        index = available[choice] if 0 <= choice < len(available) else available[0]
+    except (ValueError, IndexError):
+        index = available[0]
+    print(f"Using camera {index}")
+
+    cap, w, h = probe_result[index]
+    return cap, "camera", w, h
 
 
 def read_frame(cap, source_type):
     if cap is None or not cap.isOpened():
         return False, None
-
-    ret, frame = cap.read()
-    if not ret and source_type == "video":
-        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        ret, frame = cap.read()
-
-    return ret, frame
+    return cap.read()

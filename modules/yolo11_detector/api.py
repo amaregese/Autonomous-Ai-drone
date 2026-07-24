@@ -80,7 +80,7 @@ def configure_detector(
 
 
 def _should_reuse_last_detections():
-    frame_skip = config.FRAME_SKIP_VIDEO if source_type == "video" else config.FRAME_SKIP_CAMERA
+    frame_skip = config.FRAME_SKIP_CAMERA
     return frame_counter % frame_skip != 0 and len(last_detections) > 0
 
 

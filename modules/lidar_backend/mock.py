@@ -9,7 +9,6 @@ def connect_lidar(port):
 
 def read_lidar_distance():
     distance = random.uniform(1.0, 5.0)
-    print(f"Mock: Lidar distance = {distance:.2f}m")
     return distance, 0
 
 

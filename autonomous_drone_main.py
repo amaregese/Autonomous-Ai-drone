@@ -12,10 +12,10 @@ from modules.display import (
     annotate_selection_overlay,
     annotate_tracking_overlay,
     draw_detection_window,
-    update_drone_visualizer_status,
 )
 from modules.navigation import FollowController
 from modules.tracking import TrackingSession
+from jetson.communication.sgc_receiver import SGCCommandReceiver, _find_best_match
 import keyboard
 
 parser = argparse.ArgumentParser(description='Drive autonomous')
@@ -28,16 +28,23 @@ parser.add_argument('--conf-threshold', type=float, default=None)
 parser.add_argument('--iou-threshold', type=float, default=None)
 parser.add_argument('--min-box-area-ratio', type=float, default=None)
 parser.add_argument('--imgsz', type=int, default=None)
+parser.add_argument('--rtsp-port', type=int, default=8554, help='RTSP server port')
+parser.add_argument('--sgc-host', type=str, default='192.168.1.100', help='SGC IP address')
+parser.add_argument('--sgc-port', type=int, default=9001, help='SGC detection UDP port')
+parser.add_argument('--sgc-cmd-port', type=int, default=9002, help='SGC command UDP listen port')
 
 args = parser.parse_args()
 
 STATE = "takeoff"
 tracking_session = TrackingSession()
 follow_controller = FollowController()
-telemetry_log_counter = 0
+streamer = None
+sgc_receiver = None
 
 
 def setup():
+    global streamer
+
     drone.set_backend("sitl" if args.mode == "sitl" else "mock")
 
     print("connecting lidar")
@@ -67,10 +74,40 @@ def setup():
     control.connect_drone(connection_string)
     control.set_flight_altitude(MAX_ALT)
 
+    from jetson.streaming.rtsp_server import RTSPServer
+    from jetson.communication.detection_sender import Streamer
+    from shared.detection_transport import UDPTransport
+
+    rtsp = RTSPServer(width=640, height=480, fps=30, port=args.rtsp_port)
+    transport = UDPTransport(host=args.sgc_host, port=args.sgc_port)
+    streamer = Streamer(rtsp_server=rtsp, transport=transport)
+    streamer.start()
+    print(f"Streaming: {rtsp.stream_url} -> {args.sgc_host}:{args.sgc_port}")
+
+    from jetson.communication.sgc_receiver import SGCCommandReceiver
+
+    global sgc_receiver
+    sgc_receiver = SGCCommandReceiver(port=args.sgc_cmd_port)
+    sgc_receiver.start()
+    print(f"SGC commands listening on UDP port {args.sgc_cmd_port}")
+
+
+def _handle_sgc_command(cmd, detections):
+    if cmd.command_type in ("select_target", "follow_start"):
+        if cmd.bbox is None:
+            return
+        matched = _find_best_match(cmd.bbox, cmd.class_name, detections)
+        if matched is not None:
+            detector.select_object(matched)
+            print(f"[SGC] Selected: {matched.class_name} ({matched.confidence * 100:.1f}%)")
+        else:
+            print(f"[SGC] No match for {cmd.class_name} bbox={cmd.bbox}")
+    elif cmd.command_type in ("deselect_target", "follow_stop"):
+        detector.clear_selection()
+        print("[SGC] Selection cleared")
+
 
 def main_loop():
-    global telemetry_log_counter
-
     tracking_session.reset_loss_state()
 
     while True:
@@ -85,6 +122,14 @@ def main_loop():
             time.sleep(0.01)
             continue
 
+        if streamer is not None:
+            streamer.push(image, detections, fps)
+
+        if sgc_receiver is not None:
+            cmd = sgc_receiver.pop_command()
+            if cmd is not None:
+                _handle_sgc_command(cmd, detections)
+
         height, width = image.shape[:2]
 
         image = draw_detection_window(image, detections, detector)
@@ -92,28 +137,10 @@ def main_loop():
         tracking_session.process_click(detections, detector, control)
 
         selected_obj = detector.get_selected_object()
-        selected_class = detector.get_selected_class()
-        tracking_lost = detector.get_tracking_status()
-        tracking_conf = detector.get_tracking_confidence()
 
         if selected_obj is not None:
 
             movement = follow_controller.compute_follow_command(selected_obj, image.shape)
-
-            telemetry_log_counter += 1
-            if telemetry_log_counter % 15 == 0:
-                print(
-                    f"Distance: {movement['lidar_dist']:.2f}m | "
-                    f"Error: {movement['distance_error']:.2f}m"
-                )
-
-            control.update_visualizer_target(
-                movement["target_x"],
-                movement["target_z"],
-                selected_obj.class_name,
-                selected_obj.confidence,
-                movement["lidar_dist"],
-            )
 
             drone.send_movement_command_YAW(movement["yaw_cmd"])
             drone.send_movement_command_XYA(0, movement["vel_z"], MAX_ALT)
@@ -130,18 +157,13 @@ def main_loop():
             annotate_tracking_overlay(image, fps, selected_obj, movement)
 
         else:
-            control.update_visualizer_target(width // 2, height // 2, "No Target", 0, 0)
             control.update_telemetry_from_track(fps, 0, 0, False, 0, 0)
 
             annotate_selection_overlay(image, detections)
 
-        update_drone_visualizer_status(detector, control, TRACKING_LOST_THRESHOLD)
-
-        # ONLY ONE DISPLAY HERE
         if image is not None:
             cv2.imshow("Detection", image)
-
-        control.draw_visualizer()
+            cv2.setMouseCallback("Detection", tracking_session.handle_mouse_event)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
             land()
@@ -160,8 +182,11 @@ def takeoff():
 def land():
     print("LANDING...")
     control.land()
+    if sgc_receiver is not None:
+        sgc_receiver.stop()
+    if streamer is not None:
+        streamer.stop()
     detector.cleanup()
-    control.close_visualizer()
     cv2.destroyAllWindows()
     sys.exit(0)
 
@@ -170,7 +195,6 @@ setup()
 
 detector.get_image_size()
 control.configure_PID(args.control)
-control.initialize_debug_logs(args.debug_path)
 
 STATE = "takeoff" if args.mode in ("flight", "sitl") else "main"
 

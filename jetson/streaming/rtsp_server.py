@@ -17,6 +17,41 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _get_lan_ip() -> str:
+    """Auto-detect the LAN IP of the active network interface."""
+    # Method 1: Connect to external route — OS picks the right interface
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(1.0)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        if ip and not ip.startswith("127."):
+            return ip
+    except Exception:
+        pass
+
+    # Method 2:hostname resolution
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+        if ip and not ip.startswith("127."):
+            return ip
+    except Exception:
+        pass
+
+    # Method 3: Enumerate all interfaces, pick the first non-loopback IPv4
+    try:
+        hostname = socket.gethostname()
+        for addr_info in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            ip = addr_info[4][0]
+            if not ip.startswith("127."):
+                return ip
+    except Exception:
+        pass
+
+    return "127.0.0.1"
+
+
 class _FrameHolder:
     def __init__(self) -> None:
         self.frame: Optional[np.ndarray] = None
@@ -27,8 +62,11 @@ class _FrameHolder:
     def push(self, frame: np.ndarray) -> None:
         with self.lock:
             self.frame = frame.copy()
+        self.event.set()
 
     def get_jpeg(self) -> Optional[bytes]:
+        self.event.wait(timeout=0.1)
+        self.event.clear()
         with self.lock:
             frame = self.frame
         if frame is None:
@@ -55,7 +93,6 @@ class _MJPEGHandler(BaseHTTPRequestHandler):
                     self.wfile.write(jpeg)
                     self.wfile.write(b"\r\n")
                     self.wfile.flush()
-                time.sleep(1.0 / 30)
         except Exception:
             pass
 
@@ -112,9 +149,10 @@ class RTSPServer:
 
     @property
     def stream_url(self) -> str:
+        ip = _get_lan_ip()
         if self._backend == "gstreamer":
-            return f"rtsp://localhost:{self._port}/{self._stream_name}"
-        return f"http://localhost:{self._port}/stream"
+            return f"rtsp://{ip}:{self._port}/{self._stream_name}"
+        return f"http://{ip}:{self._port}/stream"
 
     def push_frame(self, frame: np.ndarray) -> None:
         self._holder.push(frame)

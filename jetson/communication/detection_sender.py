@@ -14,6 +14,8 @@ from shared.detection_models import (
     FrameDetections,
     OverlayConfig,
     Point,
+    TelemetryData,
+    TrackingData,
     _IDLE_COLOR,
     _LOST_COLOR,
     _SELECTED_COLOR,
@@ -54,7 +56,15 @@ def _get_tracker_state() -> str:
     return "tracking"
 
 
-def _build_overlay(tracker_state: str, num_detections: int) -> OverlayConfig:
+def _build_overlay(
+    tracker_state: str,
+    num_detections: int,
+    mode: str,
+    streaming: bool,
+    movement: Optional[dict],
+    selected_class: Optional[str],
+    tracking_conf: float,
+) -> OverlayConfig:
     if tracker_state == "tracking":
         bbox_color = _TRACKING_COLOR
     elif tracker_state == "lost":
@@ -70,6 +80,27 @@ def _build_overlay(tracker_state: str, num_detections: int) -> OverlayConfig:
         prompt_text = None
 
     counter_text = f"Objects detected: {num_detections}" if num_detections > 0 else None
+
+    mode_colors = {
+        "TEST": ("rgba(60,60,60,0.8)", "#c8c8c8"),
+        "sitl": ("rgba(0,100,180,0.8)", "#ffffff"),
+        "flight": ("rgba(0,140,0,0.8)", "#ffffff"),
+    }
+    mode_bg, mode_color = mode_colors.get(mode, ("rgba(60,60,60,0.8)", "#c8c8c8"))
+
+    show_tracking_bar = tracker_state == "tracking" and movement is not None
+    tracking_bar_text = None
+    if show_tracking_bar and selected_class:
+        dist = movement.get("lidar_dist", 0.0) or movement.get("vision_dist", 0.0)
+        speed = movement.get("vel_z", 0.0)
+        yaw = movement.get("yaw_cmd", 0.0)
+        tracking_bar_text = (
+            f"Following: {selected_class}  |  "
+            f"Dist: {dist:.1f}m  |  Speed: {speed:.1f}m/s  |  "
+            f"Yaw: {yaw:.1f}  |  Conf: {tracking_conf:.0f}%"
+        )
+
+    show_lost_banner = tracker_state == "lost" and selected_class is not None
 
     return OverlayConfig(
         bbox_color=bbox_color,
@@ -93,6 +124,29 @@ def _build_overlay(tracker_state: str, num_detections: int) -> OverlayConfig:
         fps_color="#4ade80",
         fps_bg="rgba(0,0,0,0.6)",
         fps_font="bold 11px monospace",
+        mode_text=mode.upper(),
+        mode_position="top_center",
+        mode_bg=mode_bg,
+        mode_color=mode_color,
+        mode_font="bold 12px monospace",
+        show_stream_indicator=True,
+        stream_indicator_color="#00c800" if streaming else "#c80000",
+        show_tracking_bar=show_tracking_bar,
+        tracking_bar_text=tracking_bar_text,
+        tracking_bar_position="top_below_status",
+        tracking_bar_bg="rgba(30,80,30,0.8)",
+        tracking_bar_color="#b4ffb4",
+        tracking_bar_font="bold 10px monospace",
+        show_lost_banner=show_lost_banner,
+        lost_banner_text="TARGET LOST" if show_lost_banner else "",
+        lost_banner_color="#ffffff",
+        lost_banner_bg="rgba(180,0,0,0.4)",
+        lost_banner_font="bold 18px monospace",
+        show_shortcut_bar=True,
+        shortcut_bar_text="[ESC] deselect  [SPACE] follow  [R] reset  [H] hud  [Q] quit",
+        shortcut_bar_position="bottom_center",
+        shortcut_bar_color="#828282",
+        shortcut_bar_font="9px monospace",
     )
 
 
@@ -108,13 +162,28 @@ class Streamer:
         self._source_id = source_id
         self._frame_id = 0
         self._active = False
+        self._mode: str = "test"
+        self._hud_visible: bool = True
 
     def start(self) -> None:
         self._rtsp.start()
         self._active = True
         logger.info("Streaming started: %s", self._rtsp.stream_url)
 
-    def push(self, frame, detections, fps: float) -> None:
+    def set_mode(self, mode: str) -> None:
+        self._mode = mode
+
+    def set_hud_visible(self, visible: bool) -> None:
+        self._hud_visible = visible
+
+    def push(
+        self,
+        frame,
+        detections,
+        fps: float,
+        movement: Optional[dict] = None,
+        telemetry: Optional[TelemetryData] = None,
+    ) -> None:
         if not self._active:
             return
         self._frame_id += 1
@@ -122,6 +191,8 @@ class Streamer:
 
         selected_obj = detector.get_selected_object()
         tracker_state = _get_tracker_state()
+        tracking_conf = detector.get_tracking_confidence() if selected_obj else 0.0
+        selected_class = selected_obj.class_name if selected_obj else None
 
         h, w = frame.shape[:2]
         shared = [
@@ -132,7 +203,28 @@ class Streamer:
             )
             for d in detections
         ]
-        overlay = _build_overlay(tracker_state, len(shared))
+
+        overlay = _build_overlay(
+            tracker_state,
+            len(shared),
+            self._mode,
+            True,
+            movement,
+            selected_class,
+            tracking_conf,
+        )
+
+        tracking_data = None
+        if selected_obj and movement:
+            dist = movement.get("lidar_dist", 0.0) or movement.get("vision_dist", 0.0)
+            tracking_data = TrackingData(
+                target_class=selected_class,
+                distance=dist,
+                speed=movement.get("vel_z", 0.0),
+                yaw_rate=movement.get("yaw_cmd", 0.0),
+                confidence=tracking_conf,
+            )
+
         fd = FrameDetections(
             frame_id=self._frame_id,
             detections=shared,
@@ -143,6 +235,10 @@ class Streamer:
             frame_h=h,
             tracker_state=tracker_state,
             overlay=overlay,
+            mode=self._mode,
+            hud_visible=self._hud_visible,
+            telemetry=telemetry,
+            tracking_data=tracking_data,
         )
         self._transport.send(fd)
 

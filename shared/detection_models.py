@@ -56,6 +56,29 @@ class OverlayConfig:
     fps_color: str = _DEFAULT_FPS_COLOR
     fps_bg: str = _DEFAULT_BG
     fps_font: str = _DEFAULT_FONT
+    mode_text: str = "TEST"
+    mode_position: str = "top_center"
+    mode_bg: str = "rgba(60,60,60,0.8)"
+    mode_color: str = "#c8c8c8"
+    mode_font: str = "bold 12px monospace"
+    show_stream_indicator: bool = True
+    stream_indicator_color: str = "#00c800"
+    show_tracking_bar: bool = False
+    tracking_bar_text: Optional[str] = None
+    tracking_bar_position: str = "top_below_status"
+    tracking_bar_bg: str = "rgba(30,80,30,0.8)"
+    tracking_bar_color: str = "#b4ffb4"
+    tracking_bar_font: str = "bold 10px monospace"
+    show_lost_banner: bool = False
+    lost_banner_text: str = "TARGET LOST"
+    lost_banner_color: str = "#ffffff"
+    lost_banner_bg: str = "rgba(180,0,0,0.4)"
+    lost_banner_font: str = "bold 18px monospace"
+    show_shortcut_bar: bool = True
+    shortcut_bar_text: str = "[ESC] deselect  [SPACE] follow  [R] reset  [H] hud  [Q] quit"
+    shortcut_bar_position: str = "bottom_center"
+    shortcut_bar_color: str = "#828282"
+    shortcut_bar_font: str = "9px monospace"
 
     def to_dict(self) -> dict:
         return {
@@ -80,6 +103,29 @@ class OverlayConfig:
             "fps_color": self.fps_color,
             "fps_bg": self.fps_bg,
             "fps_font": self.fps_font,
+            "mode_text": self.mode_text,
+            "mode_position": self.mode_position,
+            "mode_bg": self.mode_bg,
+            "mode_color": self.mode_color,
+            "mode_font": self.mode_font,
+            "show_stream_indicator": self.show_stream_indicator,
+            "stream_indicator_color": self.stream_indicator_color,
+            "show_tracking_bar": self.show_tracking_bar,
+            "tracking_bar_text": self.tracking_bar_text,
+            "tracking_bar_position": self.tracking_bar_position,
+            "tracking_bar_bg": self.tracking_bar_bg,
+            "tracking_bar_color": self.tracking_bar_color,
+            "tracking_bar_font": self.tracking_bar_font,
+            "show_lost_banner": self.show_lost_banner,
+            "lost_banner_text": self.lost_banner_text,
+            "lost_banner_color": self.lost_banner_color,
+            "lost_banner_bg": self.lost_banner_bg,
+            "lost_banner_font": self.lost_banner_font,
+            "show_shortcut_bar": self.show_shortcut_bar,
+            "shortcut_bar_text": self.shortcut_bar_text,
+            "shortcut_bar_position": self.shortcut_bar_position,
+            "shortcut_bar_color": self.shortcut_bar_color,
+            "shortcut_bar_font": self.shortcut_bar_font,
         }
 
 
@@ -178,6 +224,62 @@ class Detection:
 
 
 @dataclass(frozen=False, slots=True)
+class TelemetryData:
+    altitude: float = 0.0
+    battery: int = 100
+    lat: float = 0.0
+    lon: float = 0.0
+    ekf_ok: bool = True
+
+    def to_dict(self) -> dict:
+        return {
+            "altitude": round(self.altitude, 2),
+            "battery": self.battery,
+            "lat": round(self.lat, 6),
+            "lon": round(self.lon, 6),
+            "ekf_ok": self.ekf_ok,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> TelemetryData:
+        return cls(
+            altitude=d.get("altitude", 0.0),
+            battery=d.get("battery", 100),
+            lat=d.get("lat", 0.0),
+            lon=d.get("lon", 0.0),
+            ekf_ok=d.get("ekf_ok", True),
+        )
+
+
+@dataclass(frozen=False, slots=True)
+class TrackingData:
+    target_class: Optional[str] = None
+    distance: float = 0.0
+    speed: float = 0.0
+    yaw_rate: float = 0.0
+    confidence: float = 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "target_class": self.target_class,
+            "distance": round(self.distance, 2),
+            "speed": round(self.speed, 2),
+            "yaw_rate": round(self.yaw_rate, 2),
+            "confidence": round(self.confidence, 1),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> TrackingData:
+        return cls(
+            target_class=d.get("target_class"),
+            distance=d.get("distance", 0.0),
+            speed=d.get("speed", 0.0),
+            yaw_rate=d.get("yaw_rate", 0.0),
+            confidence=d.get("confidence", 0.0),
+        )
+
+
+@dataclass(frozen=False, slots=True)
 class FrameDetections:
     frame_id: int = 0
     detections: list[Detection] = field(default_factory=list)
@@ -188,6 +290,10 @@ class FrameDetections:
     frame_h: int = 0
     tracker_state: str = "idle"
     overlay: Optional[OverlayConfig] = None
+    mode: str = "test"
+    hud_visible: bool = True
+    telemetry: Optional[TelemetryData] = None
+    tracking_data: Optional[TrackingData] = None
 
     def to_dict(self) -> dict:
         return {
@@ -198,13 +304,19 @@ class FrameDetections:
             "frame_w": self.frame_w,
             "frame_h": self.frame_h,
             "tracker_state": self.tracker_state,
+            "mode": self.mode,
+            "hud_visible": self.hud_visible,
             "overlay": self.overlay.to_dict() if self.overlay else None,
+            "telemetry": self.telemetry.to_dict() if self.telemetry else None,
+            "tracking_data": self.tracking_data.to_dict() if self.tracking_data else None,
             "detections": [d.to_dict() for d in self.detections],
         }
 
     @classmethod
     def from_dict(cls, d: dict) -> FrameDetections:
         overlay_d = d.get("overlay")
+        telemetry_d = d.get("telemetry")
+        tracking_d = d.get("tracking_data")
         return cls(
             frame_id=d.get("frame_id", 0),
             source_id=d.get("source_id", "drone_0"),
@@ -213,6 +325,10 @@ class FrameDetections:
             frame_w=d.get("frame_w", 0),
             frame_h=d.get("frame_h", 0),
             tracker_state=d.get("tracker_state", "idle"),
+            mode=d.get("mode", "test"),
+            hud_visible=d.get("hud_visible", True),
             overlay=OverlayConfig(**overlay_d) if overlay_d else None,
+            telemetry=TelemetryData(**telemetry_d) if telemetry_d else None,
+            tracking_data=TrackingData(**tracking_d) if tracking_d else None,
             detections=[Detection.from_dict(det) for det in d.get("detections", [])],
         )

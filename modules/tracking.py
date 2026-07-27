@@ -5,6 +5,7 @@ class TrackingSession:
     def __init__(self):
         self.mouse_click_x = -1
         self.mouse_click_y = -1
+        self.right_click = False
         self.lost_shown = False
         self.last_target_name = None
 
@@ -12,6 +13,8 @@ class TrackingSession:
         if event == cv2.EVENT_LBUTTONDOWN:
             self.mouse_click_x = x
             self.mouse_click_y = y
+        elif event == cv2.EVENT_RBUTTONDOWN:
+            self.right_click = True
 
     def has_pending_click(self):
         return self.mouse_click_x != -1 and self.mouse_click_y != -1
@@ -20,6 +23,12 @@ class TrackingSession:
         self.mouse_click_x = -1
         self.mouse_click_y = -1
 
+    def has_right_click(self):
+        return self.right_click
+
+    def clear_right_click(self):
+        self.right_click = False
+
     def find_object_at_click(self, detections):
         for obj in detections:
             if obj.Left <= self.mouse_click_x <= obj.Right and obj.Top <= self.mouse_click_y <= obj.Bottom:
@@ -27,6 +36,13 @@ class TrackingSession:
         return None
 
     def process_click(self, detections, detector, control):
+        if self.has_right_click():
+            self.clear_right_click()
+            detector.clear_selection()
+            control.set_visualizer_status("Selection cleared", (200, 200, 200), 1.0)
+            self.clear_click()
+            return
+
         if not self.has_pending_click():
             return
 

@@ -12,9 +12,18 @@ from modules.display import (
     annotate_selection_overlay,
     annotate_tracking_overlay,
     draw_detection_window,
+    draw_hud_background,
+    draw_status_bar,
+    draw_fps,
+    draw_telemetry,
+    draw_lost_banner,
+    draw_shortcut_bar,
+    hud,
+    set_detector_ref,
 )
 from modules.navigation import FollowController
 from modules.tracking import TrackingSession
+from shared.detection_models import TelemetryData
 from jetson.communication.sgc_receiver import SGCCommandReceiver, _find_best_match
 import keyboard
 
@@ -40,6 +49,7 @@ tracking_session = TrackingSession()
 follow_controller = FollowController()
 streamer = None
 sgc_receiver = None
+_last_infer_time = 0.0
 
 
 def setup():
@@ -58,6 +68,7 @@ def setup():
         inference_img_size=args.imgsz,
     )
     detector.initialize_detector(args.model_path)
+    set_detector_ref(detector)
 
     print("connecting to drone")
 
@@ -81,6 +92,7 @@ def setup():
     rtsp = RTSPServer(width=640, height=480, fps=30, port=args.rtsp_port)
     transport = UDPTransport(host=args.sgc_host, port=args.sgc_port)
     streamer = Streamer(rtsp_server=rtsp, transport=transport)
+    streamer.set_mode(args.mode)
     streamer.start()
     print(f"Streaming: {rtsp.stream_url} -> {args.sgc_host}:{args.sgc_port}")
 
@@ -90,6 +102,9 @@ def setup():
     sgc_receiver = SGCCommandReceiver(port=args.sgc_cmd_port)
     sgc_receiver.start()
     print(f"SGC commands listening on UDP port {args.sgc_cmd_port}")
+
+    hud.mode = args.mode
+    hud.streaming = streamer is not None
 
 
 def _handle_sgc_command(cmd, detections):
@@ -107,23 +122,85 @@ def _handle_sgc_command(cmd, detections):
         print("[SGC] Selection cleared")
 
 
+def _handle_keyboard():
+    if keyboard.is_pressed('q'):
+        land()
+        return "quit"
+
+    if keyboard.is_pressed('escape'):
+        detector.clear_selection()
+        print("Selection cleared (ESC)")
+
+    if keyboard.is_pressed('space'):
+        sel = detector.get_selected_object()
+        if sel is not None:
+            detector.clear_selection()
+            print("Follow stopped (Space)")
+        else:
+            print("No target to follow (Space)")
+
+    if keyboard.is_pressed('r'):
+        detector.clear_selection()
+        tracking_session.reset_loss_state()
+        print("Tracker reset (R)")
+
+    if keyboard.is_pressed('h'):
+        hud.hud_visible = not hud.hud_visible
+        print(f"HUD: {'ON' if hud.hud_visible else 'OFF'}")
+        time.sleep(0.2)
+
+    return None
+
+
+def _update_hud_state(fps, tracker_state, selected_obj, tracking_conf, movement):
+    telemetry = _build_telemetry()
+    hud.altitude = telemetry.altitude
+    hud.battery = telemetry.battery
+    hud.lat = telemetry.lat
+    hud.lon = telemetry.lon
+    hud.ekf_ok = telemetry.ekf_ok
+
+    if tracker_state == "lost":
+        hud.lost_flash_until = time.time() + 2.0
+
+
+def _build_telemetry() -> TelemetryData:
+    alt = MAX_ALT
+    bat = 100
+    lat, lon = 0.0, 0.0
+    ekf = True
+
+    try:
+        lat, lon, alt = drone.get_position()
+    except Exception:
+        pass
+
+    try:
+        bat = drone.get_battery_level()
+    except Exception:
+        pass
+
+    return TelemetryData(altitude=alt, battery=bat, lat=lat, lon=lon, ekf_ok=ekf)
+
+
 def main_loop():
+    global _last_infer_time
+
     tracking_session.reset_loss_state()
 
     while True:
 
-        if keyboard.is_pressed('q'):
-            land()
+        kb = _handle_keyboard()
+        if kb == "quit":
             break
 
+        t0 = time.perf_counter()
         detections, fps, image = detector.get_detections()
+        _last_infer_time = (time.perf_counter() - t0) * 1000
 
         if image is None or image.size == 0:
             time.sleep(0.01)
             continue
-
-        if streamer is not None:
-            streamer.push(image, detections, fps)
 
         if sgc_receiver is not None:
             cmd = sgc_receiver.pop_command()
@@ -137,8 +214,13 @@ def main_loop():
         tracking_session.process_click(detections, detector, control)
 
         selected_obj = detector.get_selected_object()
+        tracker_state = "idle"
+        tracking_conf = 0.0
+        movement = None
 
         if selected_obj is not None:
+            tracker_state = "tracking" if not detector.get_tracking_status() else "lost"
+            tracking_conf = detector.get_tracking_confidence()
 
             movement = follow_controller.compute_follow_command(selected_obj, image.shape)
 
@@ -158,8 +240,22 @@ def main_loop():
 
         else:
             control.update_telemetry_from_track(fps, 0, 0, False, 0, 0)
-
             annotate_selection_overlay(image, detections)
+
+        if streamer is not None:
+            telemetry = _build_telemetry()
+            streamer.push(image, detections, fps, movement=movement, telemetry=telemetry)
+
+        if hud.hud_visible:
+            _update_hud_state(fps, tracker_state, selected_obj, tracking_conf, movement)
+            draw_hud_background(image)
+            draw_status_bar(image, tracker_state,
+                            selected_obj.class_name if selected_obj else None,
+                            tracking_conf)
+            draw_telemetry(image, hud.altitude, hud.battery, hud.lat, hud.lon, hud.ekf_ok)
+            draw_fps(image, fps, _last_infer_time)
+            draw_lost_banner(image)
+            draw_shortcut_bar(image)
 
         if image is not None:
             cv2.imshow("Detection", image)

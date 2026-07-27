@@ -2,6 +2,7 @@ import time
 
 import cv2
 import numpy as np
+import torch
 
 from modules.yolo11_detector import config
 from modules.yolo11_detector.matching import (
@@ -90,6 +91,7 @@ def _predict_boxes(frame):
         conf=config.CONFIDENCE_THRESHOLD,
         iou=config.IOU_THRESHOLD,
         imgsz=config.INFERENCE_IMG_SIZE,
+        half=torch.cuda.is_available(),
         verbose=False,
     )
 
@@ -247,7 +249,7 @@ def get_detections():
 
     if frame.shape[1] > config.DEFAULT_WIDTH:
         scale = config.DEFAULT_WIDTH / frame.shape[1]
-        frame = cv2.resize(frame, (config.DEFAULT_WIDTH, int(frame.shape[0] * scale)))
+        frame = cv2.resize(frame, (config.DEFAULT_WIDTH, int(frame.shape[0] * scale)), interpolation=cv2.INTER_AREA)
 
     output_width, output_height = frame.shape[1], frame.shape[0]
     detections = detect_objects(frame)

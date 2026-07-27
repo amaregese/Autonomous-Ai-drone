@@ -58,6 +58,24 @@ def get_version():
     return "Mock: Version 1.0"
 
 
+def get_position():
+    backend = _get_backend()
+    if backend is not None:
+        msg = backend._master.recv_match(type="GLOBAL_POSITION_INT", blocking=True, timeout=0.5)
+        if msg:
+            return msg.lat / 1e7, msg.lon / 1e7, msg.alt / 1000.0
+    return 0.0, 0.0, 0.0
+
+
+def get_battery_level():
+    backend = _get_backend()
+    if backend is not None:
+        msg = backend._master.recv_match(type="SYS_STATUS", blocking=True, timeout=0.5)
+        if msg:
+            return getattr(msg, "battery_remaining", -1)
+    return 100
+
+
 def send_movement_command_YAW(angle):
     backend = _get_backend()
     if backend is not None:

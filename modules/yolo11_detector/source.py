@@ -8,6 +8,7 @@ from modules.yolo11_detector.config import DEFAULT_HEIGHT, DEFAULT_WIDTH
 def _try_open_and_read(index, result):
     try:
         cap = cv2.VideoCapture(index)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if cap.isOpened():
             ret, frame = cap.read()
             if ret and frame is not None:

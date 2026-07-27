@@ -1,0 +1,33 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# Model weights (large files)
+YOLO/
+*.pt
+*.onnx
+*.engine
+*.ptu
+
+# Debug / output
+debug/
+runs/
+*.avi
+*.mp4
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Environment
+.env
+venv/
+.venv/

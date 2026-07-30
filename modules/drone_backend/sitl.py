@@ -1,4 +1,6 @@
 import math
+import subprocess
+import sys
 import threading
 import time
 
@@ -11,6 +13,16 @@ except ImportError:  # pragma: no cover - dependency may be absent during static
 _master = None
 _state_lock = threading.Lock()
 _last_yaw_rate_rad_s = 0.0
+_message_listener_thread = None
+_message_listener_running = False
+_sitl_process = None
+
+_cached_lat = 0.0
+_cached_lon = 0.0
+_cached_alt = 0.0
+_cached_battery = -1
+_cached_ekf_flags = 0
+_telemetry_lock = threading.Lock()
 
 
 def _require_mavlink():
@@ -52,17 +64,163 @@ def _set_mode(mode_name):
     master.recv_match(type="HEARTBEAT", blocking=True, timeout=2)
 
 
-def connect_drone(connection_string, waitready=True, baud=57600):
+def _message_listener():
+    global _message_listener_running, _cached_lat, _cached_lon, _cached_alt
+    global _cached_battery, _cached_ekf_flags
+    _message_listener_running = True
+    _message_listener._last_mode = None
+    types = "STATUSTEXT,HEARTBEAT,GLOBAL_POSITION_INT,SYS_STATUS,EKF_STATUS_REPORT"
+    while _message_listener_running:
+        master = _master
+        if master is None:
+            time.sleep(0.1)
+            continue
+        try:
+            msg = master.recv_match(type=types, blocking=True, timeout=1)
+            if msg is None:
+                continue
+            mtype = msg.get_type()
+            if mtype == "STATUSTEXT":
+                severity = msg.severity
+                prefix = ""
+                if severity <= 3:
+                    prefix = "AP: "
+                elif severity == 4:
+                    prefix = "AP: "
+                print(f"[VEHICLE] {prefix}{msg.text}")
+            elif mtype == "HEARTBEAT":
+                custom = msg.custom_mode
+                mode_name = _mode_id_to_name(msg.type, custom)
+                if mode_name and _message_listener._last_mode != mode_name:
+                    print(f"[VEHICLE] Mode {mode_name}")
+                _message_listener._last_mode = mode_name
+            elif mtype == "GLOBAL_POSITION_INT":
+                with _telemetry_lock:
+                    _cached_lat = msg.lat / 1e7
+                    _cached_lon = msg.lon / 1e7
+                    _cached_alt = msg.alt / 1000.0
+            elif mtype == "SYS_STATUS":
+                with _telemetry_lock:
+                    _cached_battery = getattr(msg, "battery_remaining", -1)
+            elif mtype == "EKF_STATUS_REPORT":
+                with _telemetry_lock:
+                    _cached_ekf_flags = msg.flags
+        except Exception:
+            time.sleep(0.1)
+
+
+def _mode_id_to_name(type_id, custom_mode):
+    mode_mapping = {
+        0: {0: "STABILIZE", 2: "ACRO", 3: "ALT_HOLD", 4: "AUTO", 5: "GUIDED",
+            6: "LOITER", 9: "LAND", 16: "POSHOLD"},
+    }
+    modes = mode_mapping.get(type_id, {})
+    return modes.get(custom_mode)
+
+
+def _request_message_intervals(master):
+    intervals = [
+        (mavutil.mavlink.MAVLINK_MSG_ID_STATUSTEXT, 1000000),
+        (mavutil.mavlink.MAVLINK_MSG_ID_SYS_STATUS, 1000000),
+        (mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 200000),
+        (mavutil.mavlink.MAVLINK_MSG_ID_HEARTBEAT, 1000000),
+        (mavutil.mavlink.MAVLINK_MSG_ID_EKF_STATUS_REPORT, 500000),
+    ]
+    for msg_id, interval_us in intervals:
+        master.mav.command_long_send(
+            master.target_system,
+            master.target_component,
+            mavutil.mavlink.MAV_CMD_SET_MESSAGE_INTERVAL,
+            0,
+            msg_id,
+            interval_us,
+            0, 0, 0, 0, 0,
+        )
+
+
+def _start_sitl_auto():
+    global _sitl_process
+    cmd = (
+        'bash -c "'
+        'source ~/.profile 2>/dev/null; '
+        'cd ~/ardupilot/ArduCopter && '
+        'sim_vehicle.py -v ArduCopter --out udp:127.0.0.1:14550 --no-mavproxy --console'
+        '"'
+    )
+    print("[SITL] Launching ArduCopter SITL in WSL (this may take ~30s)...")
+    _sitl_process = subprocess.Popen(
+        ["wsl", "-e", "bash", "-c",
+         "source ~/.profile 2>/dev/null; cd ~/ardupilot/ArduCopter && "
+         "sim_vehicle.py -v ArduCopter --out udp:127.0.0.1:14550 --no-mavproxy --console"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+    )
+
+    reader_thread = threading.Thread(target=_stream_sitl_output, args=(_sitl_process,), daemon=True)
+    reader_thread.start()
+
+    time.sleep(3)
+    if _sitl_process.poll() is not None:
+        raise RuntimeError("SITL process exited immediately. Check WSL ArduPilot installation.")
+    print("[SITL] Waiting for vehicle to initialize...")
+
+
+def _stream_sitl_output(proc):
+    for line in iter(proc.stdout.readline, b""):
+        try:
+            text = line.decode("utf-8", errors="replace").rstrip()
+            if text:
+                print(f"[SITL] {text}")
+        except Exception:
+            pass
+
+
+def stop_sitl():
+    global _sitl_process
+    if _sitl_process is not None:
+        _sitl_process.terminate()
+        try:
+            _sitl_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _sitl_process.kill()
+        _sitl_process = None
+        print("[SITL] SITL process stopped")
+
+
+def connect_drone(connection_string, waitready=True, baud=57600, start_sitl=False):
     global _master
     _require_mavlink()
 
+    if start_sitl:
+        _start_sitl_auto()
+
     print(f"SITL: Connecting to vehicle on {connection_string}")
-    _master = mavutil.mavlink_connection(connection_string, baud=baud)
-    _master.wait_heartbeat(timeout=15)
+    try:
+        _master = mavutil.mavlink_connection(connection_string, baud=baud)
+        _master.wait_heartbeat(timeout=30)
+    except Exception as exc:
+        _master = None
+        raise RuntimeError(f"Failed to connect to vehicle at {connection_string}: {exc}") from exc
+
+    if _master.target_system == 0 and _master.target_component == 0:
+        _master = None
+        raise RuntimeError(
+            f"No vehicle found at {connection_string}. "
+            "Start SITL (sim_vehicle.py) or connect a real vehicle first."
+        )
+
     print(
         f"SITL: Heartbeat received from system {_master.target_system} "
         f"component {_master.target_component}"
     )
+
+    _request_message_intervals(_master)
+
+    global _message_listener_thread
+    if _message_listener_thread is None or not _message_listener_thread.is_alive():
+        _message_listener_thread = threading.Thread(target=_message_listener, daemon=True)
+        _message_listener_thread.start()
+
     return _master
 
 
@@ -97,11 +255,9 @@ def land():
 
 
 def get_EKF_status():
-    master = _get_master()
-    msg = master.recv_match(type="EKF_STATUS_REPORT", blocking=True, timeout=1)
-    if msg is None:
-        return "SITL: EKF status unavailable"
-    return f"SITL: EKF flags {msg.flags}"
+    with _telemetry_lock:
+        flags = _cached_ekf_flags
+    return f"SITL: EKF flags {flags}"
 
 
 def get_battery_info():
@@ -120,6 +276,16 @@ def get_version():
     if msg is None:
         return "SITL: Version unavailable"
     return f"SITL: Flight software version {msg.flight_sw_version}"
+
+
+def get_position():
+    with _telemetry_lock:
+        return _cached_lat, _cached_lon, _cached_alt
+
+
+def get_battery_level():
+    with _telemetry_lock:
+        return _cached_battery
 
 
 def send_movement_command_YAW(angle):

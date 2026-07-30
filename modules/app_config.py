@@ -1,4 +1,4 @@
-MAX_FOLLOW_DIST = 2.0
+MAX_FOLLOW_DIST = 1.0
 MAX_ALT = 2.5
 MAX_SPEED = 2.0
 MAX_YAW = 15.0
@@ -8,10 +8,89 @@ FORWARD_DEADBAND = 0.18
 FORWARD_BRAKE_ZONE = 0.75
 LIDAR_BLEND_WEIGHT = 0.65
 
-MIN_DIST = 1.2
-MAX_DIST = 5.0
-MIN_SIZE = 0.02
-MAX_SIZE = 0.25
-PERFECT_SIZE = 0.08
-
 TRACKING_LOST_THRESHOLD = 30.0
+
+OBJECT_HEIGHT = 0.25
+
+OBJECT_HEIGHTS = {
+    "person": 1.3,
+    "bicycle": 1.0,
+    "car": 1.5,
+    "motorbike": 1.2,
+    "aeroplane": 4.0,
+    "bus": 3.0,
+    "train": 4.0,
+    "truck": 2.5,
+    "boat": 2.0,
+    "traffic light": 0.8,
+    "fire hydrant": 0.7,
+    "stop sign": 0.9,
+    "parking meter": 1.2,
+    "bench": 0.8,
+    "bird": 0.15,
+    "cat": 0.25,
+    "dog": 0.5,
+    "horse": 1.6,
+    "sheep": 0.9,
+    "cow": 1.4,
+    "elephant": 3.0,
+    "bear": 1.8,
+    "zebra": 1.3,
+    "giraffe": 4.5,
+    "backpack": 0.5,
+    "umbrella": 1.0,
+    "handbag": 0.35,
+    "tie": 0.6,
+    "suitcase": 0.6,
+    "frisbee": 0.05,
+    "skis": 1.6,
+    "snowboard": 1.4,
+    "sports ball": 0.12,
+    "kite": 0.6,
+    "baseball bat": 0.85,
+    "baseball glove": 0.3,
+    "skateboard": 0.2,
+    "surfboard": 1.8,
+    "tennis racket": 0.7,
+    "bottle": 0.25,
+    "wine glass": 0.2,
+    "cup": 0.12,
+    "fork": 0.2,
+    "knife": 0.2,
+    "spoon": 0.2,
+    "bowl": 0.1,
+    "banana": 0.2,
+    "apple": 0.08,
+    "sandwich": 0.1,
+    "orange": 0.08,
+    "broccoli": 0.15,
+    "carrot": 0.15,
+    "hot dog": 0.15,
+    "pizza": 0.05,
+    "donut": 0.08,
+    "cake": 0.1,
+    "chair": 0.8,
+    "sofa": 0.9,
+    "pottedplant": 0.5,
+    "bed": 0.5,
+    "diningtable": 0.75,
+    "toilet": 0.4,
+    "tvmonitor": 0.5,
+    "laptop": 0.3,
+    "mouse": 0.04,
+    "remote": 0.1,
+    "keyboard": 0.15,
+    "cell phone": 0.15,
+    "microwave": 0.35,
+    "oven": 0.5,
+    "toaster": 0.2,
+    "sink": 0.25,
+    "refrigerator": 1.7,
+    "book": 0.24,
+    "clock": 0.3,
+    "vase": 0.3,
+    "scissors": 0.15,
+    "teddy bear": 0.4,
+    "hair drier": 0.2,
+    "toothbrush": 0.15,
+}

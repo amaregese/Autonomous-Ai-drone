@@ -7,9 +7,11 @@ from typing import Optional
 import sys
 sys.path.insert(0, "modules")
 
+from modules import app_config
 from modules import detector_yolo11 as detector
 from shared.detection_models import (
     BBox,
+    CameraIntrinsics,
     Detection as SharedDetection,
     FrameDetections,
     OverlayConfig,
@@ -164,6 +166,7 @@ class Streamer:
         self._active = False
         self._mode: str = "test"
         self._hud_visible: bool = True
+        self._intrinsics: Optional[CameraIntrinsics] = None
 
     def start(self) -> None:
         self._rtsp.start()
@@ -175,6 +178,18 @@ class Streamer:
 
     def set_hud_visible(self, visible: bool) -> None:
         self._hud_visible = visible
+
+    def set_intrinsics(self, fx: float, fy: float, cx: float, cy: float, calib_w: int = 0, calib_h: int = 0) -> None:
+        self._intrinsics = CameraIntrinsics(fx=fx, fy=fy, cx=cx, cy=cy, calib_w=calib_w, calib_h=calib_h)
+        logger.info("Camera intrinsics set: fx=%.1f fy=%.1f cx=%.1f cy=%.1f (calib %dx%d)", fx, fy, cx, cy, calib_w, calib_h)
+
+    def _scaled_intrinsics(self, frame_w: int, frame_h: int) -> Optional[CameraIntrinsics]:
+        if self._intrinsics is None or not self._intrinsics.is_valid:
+            return None
+        if self._intrinsics.calib_w > 0 and self._intrinsics.calib_h > 0:
+            if frame_w != self._intrinsics.calib_w or frame_h != self._intrinsics.calib_h:
+                return self._intrinsics.scaled(frame_w, frame_h)
+        return self._intrinsics
 
     def push(
         self,
@@ -225,6 +240,12 @@ class Streamer:
                 confidence=tracking_conf,
             )
 
+        intr = self._scaled_intrinsics(w, h)
+        if intr is not None and intr.fy > 0:
+            for det in shared:
+                if det.bbox.height > 0:
+                    obj_h = app_config.OBJECT_HEIGHTS.get(det.class_name, app_config.OBJECT_HEIGHT)
+                    det.distance = (obj_h * intr.fy) / det.bbox.height
         fd = FrameDetections(
             frame_id=self._frame_id,
             detections=shared,
@@ -239,7 +260,9 @@ class Streamer:
             hud_visible=self._hud_visible,
             telemetry=telemetry,
             tracking_data=tracking_data,
+            intrinsics=intr,
         )
+
         self._transport.send(fd)
 
     def stop(self) -> None:

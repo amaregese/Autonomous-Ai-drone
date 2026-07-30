@@ -10,8 +10,12 @@ from modules.control_system.visualizer import (
 )
 
 
-def connect_drone(drone_location):
-    drone.connect_drone(drone_location)
+def connect_drone(drone_location, start_sitl=False):
+    return drone.connect_drone(drone_location, start_sitl=start_sitl)
+
+
+def stop_sitl():
+    drone.stop_sitl()
 
 
 def getMovementYawAngle():

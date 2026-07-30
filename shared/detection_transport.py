@@ -52,13 +52,15 @@ class UDPTransport(DetectionTransport):
 
     def send(self, frame_detections: FrameDetections) -> None:
         if self._sock is None:
+            print("[UDP] ERROR: socket is None, cannot send")
             return
         try:
             payload = json.dumps(frame_detections.to_dict()).encode("utf-8")
             header = struct.pack("!I", len(payload))
             with self._lock:
                 self._sock.sendto(header + payload, (self._host, self._port))
-        except Exception:
+        except Exception as e:
+            print(f"[UDP] SEND FAILED: {e}")
             logger.exception("UDP send failed")
 
     def start_receiving(

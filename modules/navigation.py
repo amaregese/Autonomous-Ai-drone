@@ -1,19 +1,15 @@
 import collections
 
-from modules import lidar, vision
+from modules import app_config, lidar, vision
 from modules.app_config import (
     FORWARD_BRAKE_ZONE,
     FORWARD_DEADBAND,
     GAIN_FORWARD,
     GAIN_YAW,
     LIDAR_BLEND_WEIGHT,
-    MAX_DIST,
     MAX_FOLLOW_DIST,
-    MAX_SIZE,
     MAX_SPEED,
     MAX_YAW,
-    MIN_DIST,
-    MIN_SIZE,
 )
 
 
@@ -21,31 +17,27 @@ class FollowController:
     def __init__(self):
         self.ma_x = collections.deque(maxlen=5)
         self.ma_z = collections.deque(maxlen=7)
+        self._fy = None
 
-    @staticmethod
-    def calculate_ma(values):
-        return sum(values) / len(values) if values else 0.0
+    def set_focal_length(self, fy: float):
+        self._fy = fy
 
-    @staticmethod
-    def estimate_distance_from_size(object_area, frame_area):
-        if object_area <= 0 or frame_area <= 0:
-            return 3.0, 0.0
-
-        normalized_size = object_area / frame_area
-        size = max(MIN_SIZE, min(MAX_SIZE, normalized_size))
-
-        # Apparent object area changes quadratically with distance, so use sqrt
-        # before mapping to reduce aggressive forward/backward swings.
-        size_ratio = ((size - MIN_SIZE) / (MAX_SIZE - MIN_SIZE)) ** 0.5
-        distance = MAX_DIST - size_ratio * (MAX_DIST - MIN_DIST)
-        distance = max(MIN_DIST, min(MAX_DIST, distance))
-        return distance, normalized_size
+    def estimate_distance_from_size(self, bbox_height_px: float, class_name: str = "") -> float:
+        if self._fy is None or self._fy <= 0 or bbox_height_px <= 0:
+            return 3.0
+        obj_h = app_config.OBJECT_HEIGHTS.get(class_name, app_config.OBJECT_HEIGHT)
+        return (obj_h * self._fy) / bbox_height_px
 
     @staticmethod
     def blend_distance_estimate(vision_dist, lidar_dist, lidar_on_target):
         if not lidar_on_target or lidar_dist <= 0:
             return vision_dist
-        return (LIDAR_BLEND_WEIGHT * lidar_dist) + ((1.0 - LIDAR_BLEND_WEIGHT) * vision_dist)
+        blended = (LIDAR_BLEND_WEIGHT * lidar_dist) + ((1.0 - LIDAR_BLEND_WEIGHT) * vision_dist)
+        return min(vision_dist, blended)
+
+    @staticmethod
+    def calculate_ma(values):
+        return sum(values) / len(values) if values else 0.0
 
     @staticmethod
     def compute_forward_velocity(distance_error):
@@ -75,9 +67,7 @@ class FollowController:
 
         object_width = selected_obj.Right - selected_obj.Left
         object_height = selected_obj.Bottom - selected_obj.Top
-        object_area = object_width * object_height
-        frame_area = width * height
-        vision_dist, normalized_size = self.estimate_distance_from_size(object_area, frame_area)
+        vision_dist = self.estimate_distance_from_size(object_height, selected_obj.class_name)
         mock_lidar = lidar.read_lidar_distance()[0]
         fused_dist = self.blend_distance_estimate(vision_dist, mock_lidar, lidar_on_target)
 
@@ -98,10 +88,8 @@ class FollowController:
             "x_delta": x_delta,
             "y_delta": y_delta,
             "lidar_on_target": lidar_on_target,
-            "object_area": object_area,
             "object_height": object_height,
             "object_width": object_width,
-            "normalized_size": normalized_size,
             "lidar_dist": z_ma,
             "vision_dist": vision_dist,
             "fused_dist": fused_dist,
@@ -109,8 +97,6 @@ class FollowController:
             "distance_error": distance_error,
             "vel_z": vel_z,
             "yaw_cmd": yaw_cmd,
-            "target_x": target_x,
-            "target_z": target_z,
             "z_ma": z_ma,
             "x_ma": x_ma,
         }

@@ -280,6 +280,55 @@ class TrackingData:
 
 
 @dataclass(frozen=False, slots=True)
+class CameraIntrinsics:
+    fx: float = 0.0
+    fy: float = 0.0
+    cx: float = 0.0
+    cy: float = 0.0
+    calib_w: int = 0
+    calib_h: int = 0
+
+    @property
+    def is_valid(self) -> bool:
+        return self.fx > 0 and self.fy > 0
+
+    def scaled(self, target_w: int, target_h: int) -> CameraIntrinsics:
+        if self.calib_w <= 0 or self.calib_h <= 0 or target_w <= 0 or target_h <= 0:
+            return self
+        sx = target_w / self.calib_w
+        sy = target_h / self.calib_h
+        return CameraIntrinsics(
+            fx=round(self.fx * sx, 1),
+            fy=round(self.fy * sy, 1),
+            cx=round(self.cx * sx, 1),
+            cy=round(self.cy * sy, 1),
+            calib_w=target_w,
+            calib_h=target_h,
+        )
+
+    def to_dict(self) -> dict:
+        return {
+            "fx": round(self.fx, 1),
+            "fy": round(self.fy, 1),
+            "cx": round(self.cx, 1),
+            "cy": round(self.cy, 1),
+            "calib_w": self.calib_w,
+            "calib_h": self.calib_h,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> CameraIntrinsics:
+        return cls(
+            fx=d.get("fx", 0.0),
+            fy=d.get("fy", 0.0),
+            cx=d.get("cx", 0.0),
+            cy=d.get("cy", 0.0),
+            calib_w=d.get("calib_w", 0),
+            calib_h=d.get("calib_h", 0),
+        )
+
+
+@dataclass(frozen=False, slots=True)
 class FrameDetections:
     frame_id: int = 0
     detections: list[Detection] = field(default_factory=list)
@@ -294,6 +343,7 @@ class FrameDetections:
     hud_visible: bool = True
     telemetry: Optional[TelemetryData] = None
     tracking_data: Optional[TrackingData] = None
+    intrinsics: Optional[CameraIntrinsics] = None
 
     def to_dict(self) -> dict:
         return {
@@ -309,6 +359,7 @@ class FrameDetections:
             "overlay": self.overlay.to_dict() if self.overlay else None,
             "telemetry": self.telemetry.to_dict() if self.telemetry else None,
             "tracking_data": self.tracking_data.to_dict() if self.tracking_data else None,
+            "intrinsics": self.intrinsics.to_dict() if self.intrinsics and self.intrinsics.is_valid else None,
             "detections": [d.to_dict() for d in self.detections],
         }
 
@@ -317,6 +368,7 @@ class FrameDetections:
         overlay_d = d.get("overlay")
         telemetry_d = d.get("telemetry")
         tracking_d = d.get("tracking_data")
+        intrinsics_d = d.get("intrinsics")
         return cls(
             frame_id=d.get("frame_id", 0),
             source_id=d.get("source_id", "drone_0"),
@@ -330,5 +382,6 @@ class FrameDetections:
             overlay=OverlayConfig(**overlay_d) if overlay_d else None,
             telemetry=TelemetryData(**telemetry_d) if telemetry_d else None,
             tracking_data=TrackingData(**tracking_d) if tracking_d else None,
+            intrinsics=CameraIntrinsics(**intrinsics_d) if intrinsics_d else None,
             detections=[Detection.from_dict(det) for det in d.get("detections", [])],
         )

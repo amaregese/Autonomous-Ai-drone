@@ -7,6 +7,9 @@ from typing import Optional
 import cv2
 import numpy as np
 
+DISPLAY_WIDTH = 960
+DISPLAY_HEIGHT = 720
+
 
 @dataclass
 class HUDState:
@@ -54,75 +57,78 @@ def _draw_panel(img, x, y, w, h, bg_color=(20, 20, 20)):
 
 def draw_hud_background(img):
     h, w = img.shape[:2]
+    bar_h = 36
+    footer_h = 32
     overlay = img.copy()
-    cv2.rectangle(overlay, (0, 0), (w, 32), (10, 10, 10), -1)
-    cv2.rectangle(overlay, (0, h - 28), (w, h), (10, 10, 10), -1)
-    cv2.addWeighted(overlay, 0.7, img, 0.3, 0, img)
+    cv2.rectangle(overlay, (0, 0), (w, bar_h), (10, 10, 10), -1)
+    cv2.rectangle(overlay, (0, h - footer_h), (w, h), (10, 10, 10), -1)
+    cv2.addWeighted(overlay, 0.75, img, 0.25, 0, img)
+    cv2.line(img, (0, bar_h), (w, bar_h), (40, 40, 40), 1)
+    cv2.line(img, (0, h - footer_h), (w, h - footer_h), (40, 40, 40), 1)
 
 
 def draw_status_bar(img, tracker_state, target_class, tracking_conf):
     h, w = img.shape[:2]
 
     state_colors = {
-        "idle": ((80, 80, 80), "IDLE"),
-        "tracking": ((0, 160, 0), "TRACKING"),
-        "lost": ((0, 0, 180), "LOST"),
+        "idle": ((70, 70, 70), "IDLE"),
+        "tracking": ((0, 140, 0), "TRACKING"),
+        "lost": ((0, 0, 170), "LOST"),
     }
-    bg, label = state_colors.get(tracker_state, ((80, 80, 80), "UNKNOWN"))
-    _draw_pill(img, 8, 4, label, bg, (255, 255, 255))
+    bg, label = state_colors.get(tracker_state, ((70, 70, 70), "UNKNOWN"))
+    _draw_pill(img, 10, 6, label, bg, (255, 255, 255), 0.42, 1)
 
     if target_class:
         conf_text = f"{target_class} {tracking_conf:.0f}%" if tracking_conf > 0 else target_class
-        _draw_pill(img, 80, 4, conf_text, (50, 50, 50), (255, 255, 255))
+        _draw_pill(img, 90, 6, conf_text, (40, 40, 40), (255, 255, 255), 0.42, 1)
 
     mode_colors = {
-        "TEST": ((60, 60, 60), (200, 200, 200)),
-        "sitl": ((0, 100, 180), (255, 255, 255)),
-        "flight": ((0, 140, 0), (255, 255, 255)),
+        "TEST": ((50, 50, 50), (200, 200, 200)),
+        "sitl": ((0, 90, 170), (255, 255, 255)),
+        "flight": ((0, 130, 0), (255, 255, 255)),
     }
-    mc, mt = mode_colors.get(hud.mode, ((60, 60, 60), (200, 200, 200)))
+    mc, mt = mode_colors.get(hud.mode, ((50, 50, 50), (200, 200, 200)))
     mode_text = f" {hud.mode.upper()} "
     tw, _ = _text_size(mode_text, 0.45, 2)
-    _draw_pill(img, w // 2 - tw // 2 - 8, 4, mode_text, mc, mt, 0.45, 2)
+    _draw_pill(img, w // 2 - tw // 2 - 8, 6, mode_text, mc, mt, 0.45, 2)
 
     dot_color = (0, 200, 0) if hud.streaming else (0, 0, 200)
-    cv2.circle(img, (w - 18, 18), 5, dot_color, -1)
-    cv2.circle(img, (w - 18, 18), 5, (255, 255, 255), 1)
+    cv2.circle(img, (w - 12, 18), 4, dot_color, -1)
+    cv2.circle(img, (w - 12, 18), 4, (255, 255, 255), 1)
 
 
 def draw_fps(img, fps, infer_ms=0.0):
     h, w = img.shape[:2]
     fps_text = f"FPS {fps:.0f}"
     if infer_ms > 0:
-        fps_text += f"  {infer_ms:.0f}ms"
-    tw, _ = _text_size(fps_text, 0.4, 1)
-    _draw_pill(img, 8, h - 28, fps_text, (40, 40, 40), (120, 220, 120))
+        fps_text += f"  |  {infer_ms:.0f}ms"
+    _draw_pill(img, 10, h - 32, fps_text, (30, 30, 30), (120, 220, 120), 0.38, 1)
 
 
 def draw_telemetry(img, altitude, battery, lat, lon, ekf_ok):
     h, w = img.shape[:2]
-    panel_w = 160
-    panel_h = 110
-    px = w - panel_w - 8
-    py = 40
+    panel_w = 95
+    panel_h = 82
+    px = w - panel_w - 6
+    py = 42
     _draw_panel(img, px, py, panel_w, panel_h)
 
-    y = py + 18
-    _put_text(img, f"ALT  {altitude:.1f}m", (px + 8, y), 0.38, (200, 200, 200))
-    y += 20
+    y = py + 13
+    _put_text(img, f"{altitude:.1f}m", (px + 6, y), 0.28, (200, 200, 200))
+    y += 13
 
     bat_color = (0, 200, 0) if battery > 50 else (0, 180, 180) if battery > 20 else (0, 0, 200)
-    _put_text(img, f"BAT  {battery}%", (px + 8, y), 0.38, bat_color)
-    y += 20
+    _put_text(img, f"{battery}%", (px + 6, y), 0.28, bat_color)
+    y += 13
 
-    _put_text(img, f"POS  {lat:.5f}", (px + 8, y), 0.38, (200, 200, 200))
-    y += 16
-    _put_text(img, f"     {lon:.5f}", (px + 8, y), 0.38, (160, 160, 160))
-    y += 20
+    _put_text(img, f"{lat:.4f}", (px + 6, y), 0.25, (160, 160, 160))
+    y += 11
+    _put_text(img, f"{lon:.4f}", (px + 6, y), 0.25, (140, 140, 140))
+    y += 14
 
-    ekf_text = "EKF OK" if ekf_ok else "EKF FAIL"
     ekf_color = (0, 180, 0) if ekf_ok else (0, 0, 200)
-    _put_text(img, ekf_text, (px + 8, y), 0.38, ekf_color)
+    cv2.circle(img, (px + 8, y - 3), 2, ekf_color, -1)
+    _put_text(img, "EKF", (px + 14, y), 0.28, ekf_color)
 
 
 def draw_lost_banner(img):
@@ -131,12 +137,15 @@ def draw_lost_banner(img):
         return
     h, w = img.shape[:2]
     alpha = 0.3 + 0.2 * abs(((now * 4) % 2) - 1)
+    bar_h = 40
     overlay = img.copy()
-    cv2.rectangle(overlay, (0, h // 2 - 18), (w, h // 2 + 18), (0, 0, 180), -1)
+    cv2.rectangle(overlay, (0, h // 2 - bar_h), (w, h // 2 + bar_h), (0, 0, 160), -1)
     cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
+    cv2.line(img, (0, h // 2 - bar_h), (w, h // 2 - bar_h), (0, 0, 255), 2)
+    cv2.line(img, (0, h // 2 + bar_h), (w, h // 2 + bar_h), (0, 0, 255), 2)
     text = "TARGET LOST"
-    tw, th = _text_size(text, 0.7, 2)
-    _put_text(img, text, (w // 2 - tw // 2, h // 2 + th // 2 + 2), 0.7, (255, 255, 255), 2)
+    tw, th = _text_size(text, 0.8, 2)
+    _put_text(img, text, (w // 2 - tw // 2, h // 2 + th // 2 + 2), 0.8, (255, 255, 255), 2)
 
 
 def draw_shortcut_bar(img):
@@ -150,40 +159,41 @@ def draw_shortcut_bar(img):
     ]
     parts = [f"[{k}] {v}" for k, v in shortcuts]
     bar_text = "   ".join(parts)
-    tw, _ = _text_size(bar_text, 0.33, 1)
+    tw, _ = _text_size(bar_text, 0.35, 1)
     x = w // 2 - tw // 2
-    _put_text(img, bar_text, (x, h - 8), 0.33, (130, 130, 130))
+    _put_text(img, bar_text, (x, h - 10), 0.35, (120, 120, 120))
 
 
 def draw_target_tracking(img, selected_obj, movement, fps):
-    center = (img.shape[1] // 2, img.shape[0] // 2)
-    cv2.line(img, center, selected_obj.Center, (0, 200, 0), 1, cv2.LINE_AA)
-    cv2.circle(img, selected_obj.Center, 7, (0, 200, 0), 2, cv2.LINE_AA)
-    cv2.circle(img, selected_obj.Center, 2, (0, 200, 0), -1)
-
+    h, w = img.shape[:2]
+    cx, cy = w // 2, h // 2
+    tx, ty = selected_obj.Center
     dist = movement.get("lidar_dist", 0.0) or movement.get("vision_dist", 0.0)
     speed = movement.get("vel_z", 0.0)
     yaw = movement.get("yaw_cmd", 0.0)
     conf = detector_get_confidence()
+
+    cv2.line(img, (cx, cy), (tx, ty), (0, 200, 0), 1, cv2.LINE_AA)
+    cv2.circle(img, (tx, ty), 8, (0, 200, 0), 2, cv2.LINE_AA)
+    cv2.circle(img, (tx, ty), 2, (0, 200, 0), -1)
 
     bar_text = (
         f"Following: {selected_obj.class_name}  |  "
         f"Dist: {dist:.1f}m  |  Speed: {speed:.1f}m/s  |  "
         f"Yaw: {yaw:.1f}  |  Conf: {conf:.0f}%"
     )
-    h, w = img.shape[:2]
-    tw, _ = _text_size(bar_text, 0.38, 1)
-    _draw_pill(img, w // 2 - tw // 2 - 8, 36, bar_text, (30, 80, 30), (180, 255, 180), 0.38)
+    tw, _ = _text_size(bar_text, 0.4, 1)
+    _draw_pill(img, w // 2 - tw // 2 - 10, 40, bar_text, (20, 70, 20), (170, 255, 170), 0.4)
 
 
 def draw_selection_prompt(img, detections):
     h, w = img.shape[:2]
     prompt = "Click on any object to track"
     count = f"{len(detections)} detected"
-    tw1, _ = _text_size(prompt, 0.5, 1)
-    tw2, _ = _text_size(count, 0.4, 1)
-    _put_text(img, prompt, (w // 2 - tw1 // 2, h - 40), 0.5, (0, 200, 255), 1)
-    _put_text(img, count, (w // 2 - tw2 // 2, h - 55), 0.4, (100, 220, 100))
+    tw1, _ = _text_size(prompt, 0.55, 1)
+    tw2, _ = _text_size(count, 0.42, 1)
+    _put_text(img, prompt, (w // 2 - tw1 // 2, h - 44), 0.55, (0, 200, 255), 1)
+    _put_text(img, count, (w // 2 - tw2 // 2, h - 60), 0.42, (100, 220, 100))
 
 
 _detector_ref = None
@@ -200,43 +210,58 @@ def detector_get_confidence():
     return 0.0
 
 
+def _draw_corner_brackets(img, x1, y1, x2, y2, color, length=12, thickness=2):
+    cv2.line(img, (x1, y1), (x1 + length, y1), color, thickness, cv2.LINE_AA)
+    cv2.line(img, (x1, y1), (x1, y1 + length), color, thickness, cv2.LINE_AA)
+    cv2.line(img, (x2, y1), (x2 - length, y1), color, thickness, cv2.LINE_AA)
+    cv2.line(img, (x2, y1), (x2, y1 + length), color, thickness, cv2.LINE_AA)
+    cv2.line(img, (x1, y2), (x1 + length, y2), color, thickness, cv2.LINE_AA)
+    cv2.line(img, (x1, y2), (x1, y2 - length), color, thickness, cv2.LINE_AA)
+    cv2.line(img, (x2, y2), (x2 - length, y2), color, thickness, cv2.LINE_AA)
+    cv2.line(img, (x2, y2), (x2, y2 - length), color, thickness, cv2.LINE_AA)
+
+
+def _draw_label(img, text, x, y, bg_color, text_color, font_scale=0.42, thickness=1):
+    tw, th = _text_size(text, font_scale, thickness)
+    pad = 4
+    overlay = img.copy()
+    cv2.rectangle(overlay, (x, y - th - pad * 2), (x + tw + pad * 2, y + pad), bg_color, -1)
+    cv2.addWeighted(overlay, 0.7, img, 0.3, 0, img)
+    _put_text(img, text, (x + pad, y - pad), font_scale, text_color, thickness)
+
+
 def draw_detection_window(image, detections, detector):
     selected_obj = detector.get_selected_object()
+    h, w = image.shape[:2]
 
     for obj in detections:
         is_sel = obj is selected_obj
-        box_color = (0, 200, 255) if is_sel else (200, 120, 0)
-        thickness = 2 if is_sel else 1
-
-        cv2.rectangle(image, (obj.Left, obj.Top), (obj.Right, obj.Bottom), box_color, thickness, cv2.LINE_AA)
+        x1, y1, x2, y2 = obj.Left, obj.Top, obj.Right, obj.Bottom
 
         if is_sel:
-            cv2.putText(
-                image,
-                f"{obj.class_name} ({obj.confidence:.0f}%)",
-                (obj.Left, obj.Top - 6),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                box_color,
-                1,
-                cv2.LINE_AA,
-            )
-        else:
-            cv2.putText(
-                image,
-                obj.class_name,
-                (obj.Left, obj.Top - 4),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.38,
-                box_color,
-                1,
-                cv2.LINE_AA,
-            )
+            box_color = (0, 230, 255)
+            _draw_corner_brackets(image, x1, y1, x2, y2, box_color, length=16, thickness=2)
+            label = f"{obj.class_name} {obj.confidence:.0f}%"
+            _draw_label(image, label, x1, y1 - 4, (0, 180, 220), (255, 255, 255), 0.45, 1)
 
-    cx, cy = image.shape[1] // 2, image.shape[0] // 2
-    cv2.circle(image, (cx, cy), 5, (255, 255, 255), 1, cv2.LINE_AA)
-    cv2.line(image, (cx - 8, cy), (cx + 8, cy), (255, 255, 255), 1, cv2.LINE_AA)
-    cv2.line(image, (cx, cy - 8), (cx, cy + 8), (255, 255, 255), 1, cv2.LINE_AA)
+            cx_d = (x1 + x2) // 2
+            cy_d = (y1 + y2) // 2
+            cv2.circle(image, (cx_d, cy_d), 4, box_color, 1, cv2.LINE_AA)
+            cv2.line(image, (cx_d - 7, cy_d), (cx_d + 7, cy_d), box_color, 1, cv2.LINE_AA)
+            cv2.line(image, (cx_d, cy_d - 7), (cx_d, cy_d + 7), box_color, 1, cv2.LINE_AA)
+        elif selected_obj is None:
+            box_color = (180, 120, 40)
+            cv2.rectangle(image, (x1, y1), (x2, y2), box_color, 1, cv2.LINE_AA)
+            label = obj.class_name
+            _draw_label(image, label, x1, y1 - 4, (80, 70, 30), (220, 220, 220), 0.38, 1)
+
+    cx, cy = w // 2, h // 2
+    cross_size = 20
+    cv2.line(image, (cx - cross_size, cy), (cx - 6, cy), (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.line(image, (cx + 6, cy), (cx + cross_size, cy), (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.line(image, (cx, cy - cross_size), (cx, cy - 6), (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.line(image, (cx, cy + 6), (cx, cy + cross_size), (255, 255, 255), 1, cv2.LINE_AA)
+    cv2.circle(image, (cx, cy), 3, (255, 255, 255), 1, cv2.LINE_AA)
 
     return image
 

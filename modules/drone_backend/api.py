@@ -2,6 +2,7 @@ from modules.drone_backend import sitl
 from modules.drone_backend.mock_vehicle import MockVehicle
 
 _backend_name = "mock"
+_vehicle = None
 
 
 def set_backend(backend_name):
@@ -10,17 +11,30 @@ def set_backend(backend_name):
 
 
 def _get_backend():
-    if _backend_name == "sitl":
+    if _backend_name in ("sitl", "flight"):
         return sitl
     return None
 
 
-def connect_drone(connection_string, waitready=True, baud=57600):
+def connect_drone(connection_string, waitready=True, baud=57600, start_sitl=False):
+    global _vehicle
     backend = _get_backend()
     if backend is not None:
-        return backend.connect_drone(connection_string, waitready=waitready, baud=baud)
+        try:
+            _vehicle = backend.connect_drone(connection_string, waitready=waitready, baud=baud, start_sitl=start_sitl)
+        except RuntimeError as exc:
+            print(f"ERROR: {exc}")
+            return False
+        return True
     print(f"Mock: Connecting to drone at {connection_string}")
-    return MockVehicle()
+    _vehicle = MockVehicle()
+    return True
+
+
+def stop_sitl():
+    backend = _get_backend()
+    if backend is not None and hasattr(backend, 'stop_sitl'):
+        backend.stop_sitl()
 
 
 def arm_and_takeoff(max_height):
@@ -34,7 +48,10 @@ def land():
     backend = _get_backend()
     if backend is not None:
         return backend.land()
-    print("Mock: Landing")
+    if _vehicle is not None:
+        _vehicle.land()
+    else:
+        print("Mock: Landing")
 
 
 def get_EKF_status():
@@ -48,6 +65,8 @@ def get_battery_info():
     backend = _get_backend()
     if backend is not None:
         return backend.get_battery_info()
+    if _vehicle is not None:
+        return f"Mock: Battery {_vehicle.get_battery_level()}%"
     return "Mock: Battery 100%"
 
 
@@ -61,18 +80,18 @@ def get_version():
 def get_position():
     backend = _get_backend()
     if backend is not None:
-        msg = backend._master.recv_match(type="GLOBAL_POSITION_INT", blocking=True, timeout=0.5)
-        if msg:
-            return msg.lat / 1e7, msg.lon / 1e7, msg.alt / 1000.0
+        return backend.get_position()
+    if _vehicle is not None:
+        return _vehicle.get_gps_position()
     return 0.0, 0.0, 0.0
 
 
 def get_battery_level():
     backend = _get_backend()
     if backend is not None:
-        msg = backend._master.recv_match(type="SYS_STATUS", blocking=True, timeout=0.5)
-        if msg:
-            return getattr(msg, "battery_remaining", -1)
+        return backend.get_battery_level()
+    if _vehicle is not None:
+        return _vehicle.get_battery_level()
     return 100
 
 
@@ -80,11 +99,9 @@ def send_movement_command_YAW(angle):
     backend = _get_backend()
     if backend is not None:
         return backend.send_movement_command_YAW(angle)
-    pass
 
 
 def send_movement_command_XYA(x, y, altitude):
     backend = _get_backend()
     if backend is not None:
         return backend.send_movement_command_XYA(x, y, altitude)
-    pass

@@ -6,6 +6,9 @@ class MockVehicle:
         self.current_x = 0
         self.current_y = 0
         self.current_z = 2.5
+        self.battery = 100
+        self.home_lat = 14.5995
+        self.home_lon = 120.9842
 
     def simple_takeoff(self, alt):
         print(f"Mock: Taking off to {alt}m")
@@ -22,6 +25,8 @@ class MockVehicle:
         print("Mock: Going to location")
 
     def land(self):
+        self.armed = False
+        self.current_z = 0
         print("Mock: Landing")
 
     def close(self):
@@ -33,3 +38,8 @@ class MockVehicle:
     def get_position(self):
         return self.current_x, self.current_y, self.current_z
 
+    def get_battery_level(self):
+        return self.battery
+
+    def get_gps_position(self):
+        return self.home_lat, self.home_lon, self.current_z

@@ -53,22 +53,33 @@ def _get_lan_ip() -> str:
 
 
 class _FrameHolder:
-    def __init__(self) -> None:
-        self.frame: Optional[np.ndarray] = None
-        self.jpeg_quality: int = 60
-        self.lock = threading.Lock()
-        self.event = threading.Event()
+    def __init__(self, jpeg_quality: int = 50) -> None:
+        self._frames: list[Optional[np.ndarray]] = [None, None]
+        self._write_idx: int = 0
+        self._frame_id: int = 0
+        self.jpeg_quality: int = jpeg_quality
+        self._lock = threading.Lock()
+        self._new_frame_event = threading.Event()
 
     def push(self, frame: np.ndarray) -> None:
-        with self.lock:
-            self.frame = frame.copy()
-        self.event.set()
+        with self._lock:
+            self._write_idx ^= 1
+            self._frames[self._write_idx] = frame.copy()
+            self._frame_id += 1
+        self._new_frame_event.set()
+
+    def wait_for_frame(self, last_frame_id: int, timeout: float = 0.05) -> tuple[Optional[np.ndarray], int]:
+        with self._lock:
+            if self._frame_id != last_frame_id:
+                return self._frames[self._write_idx], self._frame_id
+        self._new_frame_event.wait(timeout=timeout)
+        self._new_frame_event.clear()
+        with self._lock:
+            return self._frames[self._write_idx], self._frame_id
 
     def get_jpeg(self) -> Optional[bytes]:
-        self.event.wait(timeout=0.1)
-        self.event.clear()
-        with self.lock:
-            frame = self.frame
+        with self._lock:
+            frame = self._frames[self._write_idx]
         if frame is None:
             return None
         ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.jpeg_quality])
@@ -82,17 +93,24 @@ class _MJPEGHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
         self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
         self.end_headers()
+        last_frame_id = 0
         try:
             while True:
-                jpeg = self.frame_holder.get_jpeg()
-                if jpeg is not None:
-                    self.wfile.write(b"--frame\r\n")
-                    self.wfile.write(b"Content-Type: image/jpeg\r\n")
-                    self.wfile.write(f"Content-Length: {len(jpeg)}\r\n\r\n".encode())
-                    self.wfile.write(jpeg)
-                    self.wfile.write(b"\r\n")
-                    self.wfile.flush()
+                frame, last_frame_id = self.frame_holder.wait_for_frame(last_frame_id, timeout=0.05)
+                if frame is None:
+                    continue
+                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, self.frame_holder.jpeg_quality])
+                if not ok:
+                    continue
+                jpeg = buf.tobytes()
+                self.wfile.write(b"--frame\r\n")
+                self.wfile.write(b"Content-Type: image/jpeg\r\n")
+                self.wfile.write(f"Content-Length: {len(jpeg)}\r\n\r\n".encode())
+                self.wfile.write(jpeg)
+                self.wfile.write(b"\r\n")
+                self.wfile.flush()
         except Exception:
             pass
 
@@ -135,13 +153,14 @@ class RTSPServer:
         fps: int = 30,
         port: int = 8554,
         stream_name: str = "drone",
+        jpeg_quality: int = 50,
     ) -> None:
         self._width = width
         self._height = height
         self._fps = fps
         self._port = port
         self._stream_name = stream_name
-        self._holder = _FrameHolder()
+        self._holder = _FrameHolder(jpeg_quality=jpeg_quality)
         self._http_thread: Optional[_HTTPServerThread] = None
         self._gstreamer_writer: Optional[cv2.VideoWriter] = None
         self._running = False

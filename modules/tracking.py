@@ -8,11 +8,25 @@ class TrackingSession:
         self.right_click = False
         self.lost_shown = False
         self.last_target_name = None
+        self._frame_w = 640
+        self._frame_h = 480
+        self._display_w = 960
+        self._display_h = 720
+
+    def set_frame_size(self, frame_w, frame_h, display_w, display_h):
+        self._frame_w = frame_w
+        self._frame_h = frame_h
+        self._display_w = display_w
+        self._display_h = display_h
+
+    def _to_frame_coords(self, display_x, display_y):
+        fx = display_x * self._frame_w / self._display_w
+        fy = display_y * self._frame_h / self._display_h
+        return int(fx), int(fy)
 
     def handle_mouse_event(self, event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
-            self.mouse_click_x = x
-            self.mouse_click_y = y
+            self.mouse_click_x, self.mouse_click_y = self._to_frame_coords(x, y)
         elif event == cv2.EVENT_RBUTTONDOWN:
             self.right_click = True
 

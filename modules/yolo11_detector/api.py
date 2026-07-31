@@ -309,13 +309,16 @@ def select_object(obj, frame=None):
     return True
 
 
-def clear_selection():
+def clear_selection(preserve_lost=False):
     global selected_class, selected_object, selected_features, target_memory
     global last_known_object, last_known_center, last_known_velocity
     global lost_frame_count, tracking_lost, tracking_confidence
 
     if selected_object:
         selected_object.is_selected = False
+    if preserve_lost:
+        selected_object = None
+        return
     selected_class = None
     selected_object = None
     selected_features = {}

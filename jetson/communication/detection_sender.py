@@ -49,13 +49,12 @@ def _convert_detection(det, is_selected: bool, tracker_state: str) -> SharedDete
     )
 
 
-def _get_tracker_state() -> str:
-    selected = detector.get_selected_object()
-    if selected is None:
-        return "idle"
+def _get_tracker_state(following: bool = False) -> str:
     if detector.get_tracking_status():
         return "lost"
-    return "tracking"
+    if detector.get_selected_object() is not None:
+        return "tracking" if following else "selected"
+    return "idle"
 
 
 def _build_overlay(
@@ -69,6 +68,8 @@ def _build_overlay(
 ) -> OverlayConfig:
     if tracker_state == "tracking":
         bbox_color = _TRACKING_COLOR
+    elif tracker_state == "selected":
+        bbox_color = _SELECTED_COLOR
     elif tracker_state == "lost":
         bbox_color = _LOST_COLOR
     else:
@@ -78,6 +79,8 @@ def _build_overlay(
         prompt_text = "Click on any object to track"
     elif tracker_state == "lost":
         prompt_text = "Object lost — click to re-acquire"
+    elif tracker_state == "selected":
+        prompt_text = "Selected — press SPACE to follow"
     else:
         prompt_text = None
 
@@ -167,6 +170,8 @@ class Streamer:
         self._mode: str = "test"
         self._hud_visible: bool = True
         self._intrinsics: Optional[CameraIntrinsics] = None
+        self._last_selected_class: Optional[str] = None
+        self._last_state_sent: Optional[str] = None
 
     def start(self) -> None:
         self._rtsp.start()
@@ -205,9 +210,20 @@ class Streamer:
         self._rtsp.push_frame(frame)
 
         selected_obj = detector.get_selected_object()
-        tracker_state = _get_tracker_state()
+        if selected_obj is not None:
+            self._last_selected_class = selected_obj.class_name
+        tracker_state = _get_tracker_state(following=(movement is not None))
+        if tracker_state != self._last_state_sent:
+            print(
+                f"[SEND] tracker_state: '{self._last_state_sent}' -> '{tracker_state}' "
+                f"(class={self._last_selected_class})"
+            )
+            self._last_state_sent = tracker_state
         tracking_conf = detector.get_tracking_confidence() if selected_obj else 0.0
-        selected_class = selected_obj.class_name if selected_obj else None
+        if tracker_state == "lost":
+            selected_class = self._last_selected_class
+        else:
+            selected_class = selected_obj.class_name if selected_obj else None
 
         h, w = frame.shape[:2]
         shared = [

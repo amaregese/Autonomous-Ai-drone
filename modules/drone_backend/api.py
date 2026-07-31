@@ -54,6 +54,42 @@ def land():
         print("Mock: Landing")
 
 
+def is_armed():
+    backend = _get_backend()
+    if backend is not None:
+        return backend.is_armed()
+    if _vehicle is not None:
+        return _vehicle.is_armed()
+    return False
+
+
+def get_mode():
+    backend = _get_backend()
+    if backend is not None:
+        return backend.get_mode()
+    if _vehicle is not None:
+        return _vehicle.get_mode()
+    return "UNKNOWN"
+
+
+def get_gps_fix_type():
+    backend = _get_backend()
+    if backend is not None:
+        return backend.get_gps_fix_type()
+    if _vehicle is not None:
+        return _vehicle.get_gps_fix_type()
+    return 0
+
+
+def is_ekf_ok():
+    backend = _get_backend()
+    if backend is not None:
+        return backend.is_ekf_ok()
+    if _vehicle is not None:
+        return _vehicle.is_ekf_ok()
+    return False
+
+
 def get_EKF_status():
     backend = _get_backend()
     if backend is not None:
@@ -105,3 +141,16 @@ def send_movement_command_XYA(x, y, altitude):
     backend = _get_backend()
     if backend is not None:
         return backend.send_movement_command_XYA(x, y, altitude)
+
+
+def hold_position():
+    backend = _get_backend()
+    if backend is not None:
+        return backend.hold_position()
+
+
+def send_rtl():
+    backend = _get_backend()
+    if backend is not None:
+        return backend.send_rtl()
+    print("Mock: RTL requested")

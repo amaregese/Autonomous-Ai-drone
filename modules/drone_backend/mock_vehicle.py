@@ -43,3 +43,15 @@ class MockVehicle:
 
     def get_gps_position(self):
         return self.home_lat, self.home_lon, self.current_z
+
+    def is_armed(self):
+        return self.armed
+
+    def get_mode(self):
+        return self.mode.name if hasattr(self.mode, 'name') else "GUIDED"
+
+    def get_gps_fix_type(self):
+        return 3
+
+    def is_ekf_ok(self):
+        return True

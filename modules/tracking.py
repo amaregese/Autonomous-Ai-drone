@@ -1,4 +1,6 @@
 import cv2
+from modules import drone
+from modules.display import set_hud_status
 
 
 class TrackingSession:
@@ -55,15 +57,29 @@ class TrackingSession:
             detector.clear_selection()
             control.set_visualizer_status("Selection cleared", (200, 200, 200), 1.0)
             self.clear_click()
-            return
+            return True
 
         if not self.has_pending_click():
-            return
+            return False
 
         clicked_obj = self.find_object_at_click(detections)
         previous_obj = detector.get_selected_object()
 
         if clicked_obj:
+            missing = []
+            if not drone.is_armed():
+                missing.append("not armed")
+            if drone.get_gps_fix_type() < 3:
+                missing.append("no 3D GPS fix")
+            if not drone.is_ekf_ok():
+                missing.append("EKF unhealthy")
+            if missing:
+                reason = ", ".join(missing)
+                control.set_visualizer_status(f"Cannot track: {reason}", (0, 0, 200), 2.0)
+                set_hud_status(f"Cannot track: {reason}", (0, 0, 200), 2.5)
+                print(f"[TRACK] Rejected selection — {reason}")
+                self.clear_click()
+                return False
             if previous_obj is not None:
                 control.set_visualizer_status(
                     f"Switched: {previous_obj.class_name} -> {clicked_obj.class_name}",
@@ -75,8 +91,11 @@ class TrackingSession:
                 control.set_visualizer_status(f"Tracking: {clicked_obj.class_name}", (0, 255, 0), 1.5)
                 self.lost_shown = False
                 self.last_target_name = clicked_obj.class_name
+                self.clear_click()
+                return True
 
         self.clear_click()
+        return False
 
     def reset_loss_state(self):
         self.lost_shown = False

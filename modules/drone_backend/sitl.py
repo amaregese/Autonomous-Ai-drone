@@ -22,6 +22,9 @@ _cached_lon = 0.0
 _cached_alt = 0.0
 _cached_battery = -1
 _cached_ekf_flags = 0
+_cached_armed = False
+_cached_mode = "UNKNOWN"
+_cached_gps_fix_type = 0
 _telemetry_lock = threading.Lock()
 
 
@@ -50,6 +53,7 @@ def _wait_command_ack(command_id, timeout=5.0):
 
 
 def _set_mode(mode_name):
+    global _cached_mode
     master = _get_master()
     mapping = master.mode_mapping()
     if not mapping or mode_name not in mapping:
@@ -62,14 +66,17 @@ def _set_mode(mode_name):
         mode_id,
     )
     master.recv_match(type="HEARTBEAT", blocking=True, timeout=2)
+    with _telemetry_lock:
+        _cached_mode = mode_name
 
 
 def _message_listener():
     global _message_listener_running, _cached_lat, _cached_lon, _cached_alt
     global _cached_battery, _cached_ekf_flags
+    global _cached_armed, _cached_mode, _cached_gps_fix_type
     _message_listener_running = True
     _message_listener._last_mode = None
-    types = "STATUSTEXT,HEARTBEAT,GLOBAL_POSITION_INT,SYS_STATUS,EKF_STATUS_REPORT"
+    types = ["STATUSTEXT", "HEARTBEAT", "GLOBAL_POSITION_INT", "SYS_STATUS", "EKF_STATUS_REPORT", "GPS_RAW_INT"]
     while _message_listener_running:
         master = _master
         if master is None:
@@ -94,6 +101,9 @@ def _message_listener():
                 if mode_name and _message_listener._last_mode != mode_name:
                     print(f"[VEHICLE] Mode {mode_name}")
                 _message_listener._last_mode = mode_name
+                with _telemetry_lock:
+                    _cached_armed = bool(msg.base_mode & mavutil.mavlink.MAV_MODE_FLAG_SAFETY_ARMED)
+                    _cached_mode = mode_name or "UNKNOWN"
             elif mtype == "GLOBAL_POSITION_INT":
                 with _telemetry_lock:
                     _cached_lat = msg.lat / 1e7
@@ -105,6 +115,9 @@ def _message_listener():
             elif mtype == "EKF_STATUS_REPORT":
                 with _telemetry_lock:
                     _cached_ekf_flags = msg.flags
+            elif mtype == "GPS_RAW_INT":
+                with _telemetry_lock:
+                    _cached_gps_fix_type = msg.fix_type
         except Exception:
             time.sleep(0.1)
 
@@ -113,6 +126,13 @@ def _mode_id_to_name(type_id, custom_mode):
     mode_mapping = {
         0: {0: "STABILIZE", 2: "ACRO", 3: "ALT_HOLD", 4: "AUTO", 5: "GUIDED",
             6: "LOITER", 9: "LAND", 16: "POSHOLD"},
+        2: {0: "STABILIZE", 1: "ACRO", 2: "ALT_HOLD", 3: "AUTO", 4: "GUIDED",
+            5: "LOITER", 6: "RTL", 7: "CIRCLE", 9: "LAND", 11: "DRIFT",
+            13: "SPORT", 16: "POSHOLD", 17: "BRAKE", 18: "THROW",
+            19: "AVOID_ADSB", 20: "GUIDED_NOGPS", 21: "SMART_RTL",
+            22: "FLOWHOLD", 23: "FOLLOW", 24: "ZIGZAG", 25: "SYSTID",
+            26: "AUTOTUNE", 27: "QSTABILIZE", 28: "QHOVER", 29: "QLOITER",
+            30: "QLAND", 31: "QRTL"},
     }
     modes = mode_mapping.get(type_id, {})
     return modes.get(custom_mode)
@@ -124,6 +144,7 @@ def _request_message_intervals(master):
         (mavutil.mavlink.MAVLINK_MSG_ID_SYS_STATUS, 1000000),
         (mavutil.mavlink.MAVLINK_MSG_ID_GLOBAL_POSITION_INT, 200000),
         (mavutil.mavlink.MAVLINK_MSG_ID_HEARTBEAT, 1000000),
+        (mavutil.mavlink.MAVLINK_MSG_ID_GPS_RAW_INT, 500000),
         (mavutil.mavlink.MAVLINK_MSG_ID_EKF_STATUS_REPORT, 500000),
     ]
     for msg_id, interval_us in intervals:
@@ -225,10 +246,16 @@ def connect_drone(connection_string, waitready=True, baud=57600, start_sitl=Fals
 
 
 def arm_and_takeoff(max_height):
+    global _cached_armed, _cached_mode
     master = _get_master()
     _set_mode("GUIDED")
+    with _telemetry_lock:
+        _cached_mode = "GUIDED"
     master.arducopter_arm()
     master.motors_armed_wait()
+    with _telemetry_lock:
+        _cached_armed = True
+        _cached_mode = "GUIDED"
     print("SITL: Vehicle armed")
 
     master.mav.command_long_send(
@@ -252,6 +279,38 @@ def land():
     master = _get_master()
     _set_mode("LAND")
     print("SITL: Landing")
+
+
+def send_rtl():
+    master = _get_master()
+    _set_mode("RTL")
+    print("SITL: RTL initiated")
+
+
+def is_armed():
+    with _telemetry_lock:
+        return _cached_armed
+
+
+def get_mode():
+    with _telemetry_lock:
+        return _cached_mode
+
+
+def get_gps_fix_type():
+    with _telemetry_lock:
+        return _cached_gps_fix_type
+
+
+def is_ekf_ok():
+    with _telemetry_lock:
+        flags = _cached_ekf_flags
+    EKF_ATTITUDE = 1
+    EKF_VELOCITY_HORIZ = 2
+    EKF_POS_HORIZ_ABS = 16
+    EKF_POS_VERT_ABS = 32
+    required = EKF_ATTITUDE | EKF_VELOCITY_HORIZ | EKF_POS_HORIZ_ABS | EKF_POS_VERT_ABS
+    return (flags & required) == required
 
 
 def get_EKF_status():
@@ -292,6 +351,34 @@ def send_movement_command_YAW(angle):
     global _last_yaw_rate_rad_s
     with _state_lock:
         _last_yaw_rate_rad_s = math.radians(angle)
+
+
+def hold_position():
+    master = _get_master()
+    yaw_rate = 0.0
+    with _state_lock:
+        yaw_rate = _last_yaw_rate_rad_s
+    type_mask = (
+        mavutil.mavlink.POSITION_TARGET_TYPEMASK_X_IGNORE
+        | mavutil.mavlink.POSITION_TARGET_TYPEMASK_Y_IGNORE
+        | mavutil.mavlink.POSITION_TARGET_TYPEMASK_Z_IGNORE
+        | mavutil.mavlink.POSITION_TARGET_TYPEMASK_AX_IGNORE
+        | mavutil.mavlink.POSITION_TARGET_TYPEMASK_AY_IGNORE
+        | mavutil.mavlink.POSITION_TARGET_TYPEMASK_AZ_IGNORE
+        | mavutil.mavlink.POSITION_TARGET_TYPEMASK_YAW_IGNORE
+    )
+    master.mav.set_position_target_local_ned_send(
+        0,
+        master.target_system,
+        master.target_component,
+        mavutil.mavlink.MAV_FRAME_BODY_OFFSET_NED,
+        type_mask,
+        0, 0, 0,
+        0, 0, 0,
+        0, 0, 0,
+        0,
+        yaw_rate,
+    )
 
 
 def send_movement_command_XYA(x, y, altitude):

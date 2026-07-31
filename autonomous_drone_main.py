@@ -15,11 +15,15 @@ from modules.display import (
     annotate_selection_overlay,
     annotate_tracking_overlay,
     draw_detection_window,
+    draw_follow_prompt,
     draw_hud_background,
+    draw_hud_notification,
     draw_status_bar,
     draw_fps,
     draw_lost_banner,
     draw_shortcut_bar,
+    get_lost_dismiss_rect,
+    set_hud_status,
     hud,
     set_detector_ref,
     DISPLAY_WIDTH,
@@ -68,6 +72,16 @@ sgc_receiver = None
 _calibrator = None
 _last_infer_time = 0.0
 _fy = 1405.2
+_lost_start_time = None
+_rtl_triggered = False
+_following = False
+_space_down = False
+
+
+def _reset_lost_state():
+    global _lost_start_time, _rtl_triggered
+    _lost_start_time = None
+    _rtl_triggered = False
 
 
 def setup():
@@ -146,8 +160,6 @@ def setup():
     streamer.start()
     print(f"Streaming: {rtsp.stream_url} -> {args.sgc_host}:{args.sgc_port}")
 
-    from jetson.communication.sgc_receiver import SGCCommandReceiver
-
     global sgc_receiver
     sgc_receiver = SGCCommandReceiver(port=args.sgc_cmd_port)
     sgc_receiver.start()
@@ -166,46 +178,94 @@ def setup():
 
 
 def _handle_sgc_command(cmd, detections):
-    if cmd.command_type in ("select_target", "follow_start"):
+    global _following
+    if cmd.command_type == "select_target":
         if cmd.bbox is None:
             return
         matched = _find_best_match(cmd.bbox, cmd.class_name, detections)
         if matched is not None:
             detector.select_object(matched)
+            _following = False
+            _reset_lost_state()
             print(f"[SGC] Selected: {matched.class_name} ({matched.confidence * 100:.1f}%)")
         else:
             print(f"[SGC] No match for {cmd.class_name} bbox={cmd.bbox}")
-    elif cmd.command_type in ("deselect_target", "follow_stop"):
-        detector.clear_selection()
-        print("[SGC] Selection cleared")
+    elif cmd.command_type == "follow_start":
+        if cmd.bbox is None:
+            if detector.get_selected_object() is not None:
+                _following = True
+                _reset_lost_state()
+                follow_controller.reset()
+                print("[SGC] Follow started")
+            return
+        matched = _find_best_match(cmd.bbox, cmd.class_name, detections)
+        if matched is not None:
+            detector.select_object(matched)
+            _following = True
+            _reset_lost_state()
+            follow_controller.reset()
+            print(f"[SGC] Following: {matched.class_name} ({matched.confidence * 100:.1f}%)")
+        else:
+            print(f"[SGC] No match for {cmd.class_name} bbox={cmd.bbox}")
+    elif cmd.command_type == "deselect_target":
+        if detector.get_tracking_status():
+            detector.clear_selection(preserve_lost=True)
+            _following = False
+            print("[SGC] Selection cleared (lost state preserved for popup)")
+        else:
+            detector.clear_selection()
+            _following = False
+            _reset_lost_state()
+            print("[SGC] Selection cleared")
+    elif cmd.command_type == "follow_stop":
+        _following = False
+        _reset_lost_state()
+        print("[SGC] Follow stopped")
 
 
 def _handle_keyboard():
+    global _space_down, _following
+
     if keyboard.is_pressed('q'):
         land()
         return "quit"
 
     if keyboard.is_pressed('escape'):
         detector.clear_selection()
+        tracking_session.clear_click()
+        _reset_lost_state()
+        _following = False
         print("Selection cleared (ESC)")
-
-    if keyboard.is_pressed('space'):
-        sel = detector.get_selected_object()
-        if sel is not None:
-            detector.clear_selection()
-            print("Follow stopped (Space)")
-        else:
-            print("No target to follow (Space)")
 
     if keyboard.is_pressed('r'):
         detector.clear_selection()
+        tracking_session.clear_click()
         tracking_session.reset_loss_state()
+        _reset_lost_state()
+        _following = False
         print("Tracker reset (R)")
 
     if keyboard.is_pressed('h'):
         hud.hud_visible = not hud.hud_visible
         print(f"HUD: {'ON' if hud.hud_visible else 'OFF'}")
         time.sleep(0.2)
+
+    space_now = keyboard.is_pressed('space')
+    if space_now and not _space_down:
+        sel = detector.get_selected_object()
+        if sel is None:
+            print("No target selected. Click an object first (SPACE to follow)")
+        elif _following:
+            _following = False
+            _reset_lost_state()
+            print(f"Follow stopped ({sel.class_name})")
+        else:
+            _following = True
+            _reset_lost_state()
+            follow_controller.reset()
+            print(f"Following: {sel.class_name}")
+
+    _space_down = space_now
 
     return None
 
@@ -238,6 +298,11 @@ def _build_telemetry() -> TelemetryData:
     except Exception:
         pass
 
+    try:
+        ekf = drone.is_ekf_ok()
+    except Exception:
+        pass
+
     return TelemetryData(altitude=alt, battery=bat, lat=lat, lon=lon, ekf_ok=ekf)
 
 
@@ -248,7 +313,7 @@ def _make_splash(text: str) -> np.ndarray:
     return img
 
 
-def _console_status(mode: str, movement: dict | None, selected_obj) -> None:
+def _console_status(mode: str, movement: dict | None, selected_obj, tracker_state: str = "idle", rtl_countdown: float = -1, following: bool = False) -> None:
     cols = shutil.get_terminal_size().columns
     parts = []
     parts.append(f"\033[1;36m{mode.upper():>7}\033[0m")
@@ -258,16 +323,41 @@ def _console_status(mode: str, movement: dict | None, selected_obj) -> None:
         vel = movement.get("vel_z", 0)
         yaw = movement.get("yaw_cmd", 0)
 
-        if abs(vel) < 0.05:
-            move_txt = "\033[1;33mHOVER\033[0m"
+        if tracker_state == "lost":
+            if rtl_countdown > 0:
+                status = f"\033[1;31mLOST\033[0m RTL in {rtl_countdown:.0f}s"
+            elif rtl_countdown == 0:
+                status = "\033[1;31mRTL\033[0m"
+            else:
+                status = "\033[1;31mLOST\033[0m"
+        elif abs(vel) < 0.05:
+            status = "\033[1;33mHOVER\033[0m"
         elif vel > 0:
-            move_txt = f"\033[1;32mFORWARD\033[0m {vel:+.2f}m/s"
+            status = f"\033[1;32mFORWARD\033[0m {vel:+.2f}m/s"
         else:
-            move_txt = f"\033[1;31mBACKWARD\033[0m {vel:+.2f}m/s"
+            status = f"\033[1;31mBACKWARD\033[0m {vel:+.2f}m/s"
 
         parts.append(f"{selected_obj.class_name} \033[1m{dist:.2f}m\033[0m")
         parts.append(f"YAW {yaw:+.1f}\u00b0")
-        parts.append(move_txt)
+        parts.append(status)
+    elif selected_obj is not None:
+        parts.append(f"{selected_obj.class_name} \033[1m--\033[0m")
+        parts.append("YAW --")
+        parts.append("\033[1;35mSELECTED\033[0m (SPACE to follow)")
+    elif following and tracker_state == "lost":
+        if rtl_countdown > 0:
+            status = f"\033[1;31mLOST\033[0m RTL in {rtl_countdown:.0f}s"
+        elif rtl_countdown == 0:
+            status = "\033[1;31mRTL\033[0m"
+        else:
+            status = "\033[1;31mLOST\033[0m"
+        parts.append("\033[2mtarget\033[0m \033[1m--\033[0m")
+        parts.append("YAW --")
+        parts.append(status)
+    elif tracker_state == "lost":
+        parts.append("\033[2mtarget\033[0m \033[1m--\033[0m")
+        parts.append("YAW --")
+        parts.append("\033[1;31mLOST\033[0m (re-acquire)")
     else:
         parts.append("\033[2mno target\033[0m")
         parts.append("\033[2m--\033[0m")
@@ -280,7 +370,7 @@ def _console_status(mode: str, movement: dict | None, selected_obj) -> None:
 
 
 def main_loop():
-    global _last_infer_time
+    global _last_infer_time, _lost_start_time, _rtl_triggered, _following
 
     tracking_session.reset_loss_state()
 
@@ -316,37 +406,92 @@ def main_loop():
         height, width = image.shape[:2]
         tracking_session.set_frame_size(width, height, DISPLAY_WIDTH, DISPLAY_HEIGHT)
 
-        tracking_session.process_click(detections, detector, control)
+        if tracking_session.has_pending_click():
+            fx = tracking_session.mouse_click_x
+            fy = tracking_session.mouse_click_y
+            dismiss_rect = get_lost_dismiss_rect()
+            if dismiss_rect and dismiss_rect[0] <= fx <= dismiss_rect[2] and dismiss_rect[1] <= fy <= dismiss_rect[3]:
+                _reset_lost_state()
+                detector.reset_tracking_lost()
+                tracking_session.clear_click()
+            else:
+                if tracking_session.process_click(detections, detector, control):
+                    _following = False
+                    _reset_lost_state()
+        else:
+            if tracking_session.process_click(detections, detector, control):
+                _following = False
+                _reset_lost_state()
 
         selected_obj = detector.get_selected_object()
+        is_tracking_lost = detector.get_tracking_status()
         tracker_state = "idle"
         tracking_conf = 0.0
         movement = None
 
         if selected_obj is not None:
-            tracker_state = "tracking" if not detector.get_tracking_status() else "lost"
+            tracker_state = "tracking" if not is_tracking_lost else "lost"
             tracking_conf = detector.get_tracking_confidence()
 
-            movement = follow_controller.compute_follow_command(selected_obj, image.shape)
+            if not is_tracking_lost:
+                _lost_start_time = None
+                _rtl_triggered = False
 
-            drone.send_movement_command_YAW(movement["yaw_cmd"])
-            drone.send_movement_command_XYA(0, movement["vel_z"], MAX_ALT)
+            if _following and not is_tracking_lost:
+                movement = follow_controller.compute_follow_command(selected_obj, image.shape)
 
-            control.update_telemetry_from_track(
-                fps,
-                movement["yaw_cmd"],
-                movement["vel_z"],
-                movement["lidar_on_target"],
-                movement["x_delta"],
-                movement["y_delta"],
-            )
+                drone.send_movement_command_YAW(movement["yaw_cmd"])
+                drone.send_movement_command_XYA(0, movement["vel_z"], MAX_ALT)
+
+                control.update_telemetry_from_track(
+                    fps,
+                    movement["yaw_cmd"],
+                    movement["vel_z"],
+                    movement["lidar_on_target"],
+                    movement["x_delta"],
+                    movement["y_delta"],
+                )
+            else:
+                control.update_telemetry_from_track(fps, 0, 0, False, 0, 0)
+                drone.send_movement_command_YAW(0)
+                drone.hold_position()
 
         else:
+            if is_tracking_lost:
+                tracker_state = "lost"
+                tracking_conf = detector.get_tracking_confidence()
+            else:
+                _reset_lost_state()
+
             control.update_telemetry_from_track(fps, 0, 0, False, 0, 0)
             drone.send_movement_command_YAW(0)
-            drone.send_movement_command_XYA(0, 0, MAX_ALT)
+            drone.hold_position()
 
-        _console_status(args.mode, movement, selected_obj)
+        if tracker_state == "lost" and _following:
+            if _lost_start_time is None:
+                _lost_start_time = time.time()
+                _rtl_triggered = False
+                print("[LOST] Target lost — RTL in 10s if not re-acquired")
+            elapsed = time.time() - _lost_start_time
+            remaining = max(0, 10 - elapsed)
+            if remaining == 0 and not _rtl_triggered:
+                _rtl_triggered = True
+                print("[LOST] Target lost for 10s — initiating RTL")
+                drone.send_rtl()
+                detector.clear_selection()
+                _following = False
+
+        rtl_countdown = -1
+        if _lost_start_time is not None and not _rtl_triggered:
+            rtl_countdown = max(0, 10 - (time.time() - _lost_start_time))
+        elif _rtl_triggered:
+            rtl_countdown = 0
+
+        status_state = tracker_state
+        if tracker_state == "tracking" and selected_obj is not None and not _following:
+            status_state = "selected"
+
+        _console_status(args.mode, movement, selected_obj, tracker_state, rtl_countdown, _following)
 
         if streamer is not None:
             telemetry = _build_telemetry()
@@ -354,19 +499,23 @@ def main_loop():
 
         image = draw_detection_window(image, detections, detector)
 
-        if selected_obj is not None:
+        if selected_obj is not None and movement is not None:
             annotate_tracking_overlay(image, fps, selected_obj, movement)
+        elif selected_obj is not None:
+            draw_follow_prompt(image, selected_obj.class_name)
         else:
             annotate_selection_overlay(image, detections)
 
         if hud.hud_visible:
             _update_hud_state(fps, tracker_state, selected_obj, tracking_conf, movement)
             draw_hud_background(image)
-            draw_status_bar(image, tracker_state,
+            draw_status_bar(image, status_state,
                             selected_obj.class_name if selected_obj else None,
                             tracking_conf)
             draw_fps(image, fps, _last_infer_time)
-            draw_lost_banner(image)
+            draw_hud_notification(image)
+            if tracker_state == "lost" and _following and not _rtl_triggered:
+                draw_lost_banner(image, rtl_countdown)
             draw_shortcut_bar(image)
 
         if image is not None:
@@ -387,6 +536,32 @@ def takeoff():
     cv2.waitKey(1)
     control.print_drone_report()
     control.arm_and_takeoff(MAX_ALT)
+
+    print("Waiting for GPS 3D lock, EKF convergence and altitude...")
+    home_alt = None
+    t_start = time.time()
+    timeout = 30
+    while time.time() - t_start < timeout:
+        fix = drone.get_gps_fix_type()
+        ekf_ok = drone.is_ekf_ok()
+        armed = drone.is_armed()
+        mode = drone.get_mode()
+        _, _, alt = drone.get_position()
+        if home_alt is None:
+            home_alt = alt
+        rel_alt = alt - home_alt
+        status = f"GPS fix: {fix}/3  EKF: {'OK' if ekf_ok else 'converging'}  Mode: {mode}  Armed: {armed}  Alt: {rel_alt:.1f}m"
+        splash = _make_splash(status)
+        cv2.imshow("Tracker", splash)
+        cv2.waitKey(1)
+        print(f"\r  {status}\033[K", end="", flush=True)
+        if fix >= 3 and ekf_ok and armed and rel_alt >= (MAX_ALT * 0.95):
+            print("\nAll systems ready.")
+            break
+        time.sleep(0.5)
+    else:
+        print(f"\n[WARN] Convergence timeout ({timeout}s) — proceeding with current state")
+    print(f"GPS fix_type={drone.get_gps_fix_type()}  EKF OK={drone.is_ekf_ok()}")
     return "main"
 
 

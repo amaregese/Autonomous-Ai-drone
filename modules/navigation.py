@@ -22,6 +22,10 @@ class FollowController:
     def set_focal_length(self, fy: float):
         self._fy = fy
 
+    def reset(self):
+        self.ma_x.clear()
+        self.ma_z.clear()
+
     def estimate_distance_from_size(self, bbox_height_px: float, class_name: str = "") -> float:
         if self._fy is None or self._fy <= 0 or bbox_height_px <= 0:
             return 3.0

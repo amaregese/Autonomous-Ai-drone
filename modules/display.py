@@ -22,9 +22,37 @@ class HUDState:
     lon: float = 0.0
     ekf_ok: bool = True
     lost_flash_until: float = 0.0
+    notification: str = ""
+    notification_color: tuple = (255, 255, 255)
+    notification_until: float = 0.0
 
 
 hud = HUDState()
+
+
+def set_hud_status(message: str, color=(255, 255, 255), duration: float = 2.0):
+    hud.notification = message
+    hud.notification_color = color
+    hud.notification_until = time.time() + duration
+
+
+def draw_hud_notification(img):
+    remaining = hud.notification_until - time.time()
+    if not hud.notification or remaining <= 0:
+        hud.notification = ""
+        return
+    fade = min(1.0, remaining / 0.5)
+    color = tuple(int(c * fade) for c in hud.notification_color)
+    h, w = img.shape[:2]
+    font_scale = 0.5
+    tw, th = _text_size(hud.notification, font_scale, 2)
+    x = w // 2 - tw // 2
+    y = 50
+    pad = 8
+    overlay = img.copy()
+    cv2.rectangle(overlay, (x - pad, y - th - pad), (x + tw + pad, y + pad), (0, 0, 0), -1)
+    cv2.addWeighted(overlay, 0.6 * fade, img, 1 - 0.6 * fade, 0, img)
+    _put_text(img, hud.notification, (x, y), font_scale, color, 2)
 
 
 def _put_text(img, text, org, font_scale=0.45, color=(255, 255, 255), thickness=1):
@@ -72,6 +100,7 @@ def draw_status_bar(img, tracker_state, target_class, tracking_conf):
 
     state_colors = {
         "idle": ((70, 70, 70), "IDLE"),
+        "selected": ((0, 100, 170), "SELECTED"),
         "tracking": ((0, 140, 0), "TRACKING"),
         "lost": ((0, 0, 170), "LOST"),
     }
@@ -131,21 +160,42 @@ def draw_telemetry(img, altitude, battery, lat, lon, ekf_ok):
     _put_text(img, "EKF", (px + 14, y), 0.28, ekf_color)
 
 
-def draw_lost_banner(img):
-    now = time.time()
-    if now > hud.lost_flash_until:
-        return
+_lost_dismiss_rect = None
+
+
+def draw_lost_banner(img, rtl_countdown: float = -1):
+    global _lost_dismiss_rect
     h, w = img.shape[:2]
-    alpha = 0.3 + 0.2 * abs(((now * 4) % 2) - 1)
-    bar_h = 40
+    bar_h = 36
+
+    alpha = 0.3 + 0.2 * abs(((time.time() * 4) % 2) - 1)
     overlay = img.copy()
-    cv2.rectangle(overlay, (0, h // 2 - bar_h), (w, h // 2 + bar_h), (0, 0, 160), -1)
+    cv2.rectangle(overlay, (0, bar_h), (w, bar_h + 36), (0, 0, 160), -1)
     cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
-    cv2.line(img, (0, h // 2 - bar_h), (w, h // 2 - bar_h), (0, 0, 255), 2)
-    cv2.line(img, (0, h // 2 + bar_h), (w, h // 2 + bar_h), (0, 0, 255), 2)
+    cv2.line(img, (0, bar_h), (w, bar_h), (0, 0, 255), 2)
+    cv2.line(img, (0, bar_h + 36), (w, bar_h + 36), (0, 0, 255), 2)
+
     text = "TARGET LOST"
-    tw, th = _text_size(text, 0.8, 2)
-    _put_text(img, text, (w // 2 - tw // 2, h // 2 + th // 2 + 2), 0.8, (255, 255, 255), 2)
+    tw, th = _text_size(text, 0.6, 2)
+    _put_text(img, text, (w // 2 - tw // 2, bar_h + 24), 0.6, (255, 255, 255), 2)
+
+    if rtl_countdown > 0:
+        cd = f"RTL in {rtl_countdown:.0f}s"
+        _draw_pill(img, w // 2 + tw // 2 + 10, bar_h + 4, cd, (160, 0, 0), (255, 200, 200), 0.4, 1)
+    elif rtl_countdown == 0:
+        cd = "RTL"
+        _draw_pill(img, w // 2 + tw // 2 + 10, bar_h + 4, cd, (200, 0, 0), (255, 150, 150), 0.4, 1)
+
+    btn_text = "[DISMISS]"
+    btw, _ = _text_size(btn_text, 0.4, 1)
+    bx = w - btw - 16
+    by = bar_h + 6
+    _lost_dismiss_rect = (bx, by, bx + btw + 10, by + 26)
+    _draw_pill(img, bx - 4, by - 2, btn_text, (60, 60, 60), (200, 200, 200), 0.4, 1)
+
+
+def get_lost_dismiss_rect():
+    return _lost_dismiss_rect
 
 
 def draw_shortcut_bar(img):
@@ -194,6 +244,13 @@ def draw_selection_prompt(img, detections):
     tw2, _ = _text_size(count, 0.42, 1)
     _put_text(img, prompt, (w // 2 - tw1 // 2, h - 44), 0.55, (0, 200, 255), 1)
     _put_text(img, count, (w // 2 - tw2 // 2, h - 60), 0.42, (100, 220, 100))
+
+
+def draw_follow_prompt(img, class_name):
+    h, w = img.shape[:2]
+    prompt = f"Selected: {class_name} — press SPACE to follow"
+    tw, _ = _text_size(prompt, 0.5, 1)
+    _put_text(img, prompt, (w // 2 - tw // 2, h - 44), 0.5, (230, 230, 0), 1)
 
 
 _detector_ref = None

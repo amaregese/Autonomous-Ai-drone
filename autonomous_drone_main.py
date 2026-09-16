@@ -10,7 +10,14 @@ sys.path.insert(1, 'modules')
 
 from modules import lidar, control, detector_yolo11 as detector
 from modules import drone
-from modules.app_config import MAX_ALT, TRACKING_LOST_THRESHOLD
+from modules.app_config import (
+    MAX_ALT,
+    TRACKING_LOST_THRESHOLD,
+    MIN_FOLLOW_ALT,
+    MIN_FOLLOW_BATTERY,
+    MIN_FOLLOW_GPS_FIX,
+    MIN_FOLLOW_MODE,
+)
 from modules.display import (
     annotate_selection_overlay,
     annotate_tracking_overlay,
@@ -22,7 +29,9 @@ from modules.display import (
     draw_fps,
     draw_lost_banner,
     draw_shortcut_bar,
+    draw_takeoff_button,
     get_lost_dismiss_rect,
+    get_takeoff_button_rect,
     set_hud_status,
     hud,
     set_detector_ref,
@@ -34,7 +43,6 @@ from modules.tracking import TrackingSession
 from modules.auto_calibrate import AutoCalibrator
 from shared.detection_models import TelemetryData
 from jetson.communication.sgc_receiver import SGCCommandReceiver, _find_best_match
-import keyboard
 import shutil
 
 parser = argparse.ArgumentParser(description='Drive autonomous')
@@ -49,7 +57,7 @@ parser.add_argument('--min-box-area-ratio', type=float, default=None)
 parser.add_argument('--imgsz', type=int, default=None)
 parser.add_argument('--rtsp-port', type=int, default=8554, help='RTSP server port')
 parser.add_argument('--jpeg-quality', type=int, default=50, help='JPEG quality for MJPEG stream (1-100, lower=faster)')
-parser.add_argument('--sgc-host', type=str, default='192.168.1.100', help='SGC IP address')
+parser.add_argument('--sgc-host', type=str, default=None, help='SGC IP address (default: 127.0.0.1 in SITL, 192.168.1.100 in flight)')
 parser.add_argument('--sgc-port', type=int, default=9001, help='SGC detection UDP port')
 parser.add_argument('--sgc-cmd-port', type=int, default=9002, help='SGC command UDP listen port')
 parser.add_argument('--start-sitl', action='store_true', help='Auto-launch SITL in WSL before connecting')
@@ -64,7 +72,6 @@ parser.add_argument('--object-height', type=float, default=0.25, help='Assumed o
 args = parser.parse_args()
 modules.app_config.OBJECT_HEIGHT = args.object_height
 
-STATE = "takeoff"
 tracking_session = TrackingSession()
 follow_controller = FollowController()
 streamer = None
@@ -75,7 +82,7 @@ _fy = 1405.2
 _lost_start_time = None
 _rtl_triggered = False
 _following = False
-_space_down = False
+_home_alt = 0.0
 
 
 def _reset_lost_state():
@@ -84,8 +91,110 @@ def _reset_lost_state():
     _rtl_triggered = False
 
 
+def _preflight_follow():
+    global _home_alt
+    problems = []
+
+    try:
+        if not drone.is_armed():
+            problems.append("vehicle is not armed")
+    except Exception:
+        problems.append("cannot read armed state")
+
+    try:
+        mode = drone.get_mode()
+        if mode != MIN_FOLLOW_MODE:
+            problems.append(f"mode is {mode}, need {MIN_FOLLOW_MODE}")
+    except Exception:
+        problems.append("cannot read flight mode")
+
+    try:
+        fix = drone.get_gps_fix_type()
+        if fix < MIN_FOLLOW_GPS_FIX:
+            problems.append(f"GPS fix {fix}/3")
+    except Exception:
+        problems.append("cannot read GPS fix")
+
+    try:
+        if not drone.is_ekf_ok():
+            problems.append("EKF not converged")
+    except Exception:
+        problems.append("cannot read EKF status")
+
+    try:
+        rel_alt = drone.get_position()[2] - _home_alt
+        if rel_alt < MIN_FOLLOW_ALT:
+            if rel_alt < 0.5:
+                problems.append("vehicle is on the ground")
+            else:
+                problems.append(f"altitude {rel_alt:.1f}m below {MIN_FOLLOW_ALT}m")
+    except Exception:
+        problems.append("cannot read altitude")
+
+    try:
+        battery = drone.get_battery_level()
+        if battery >= 0 and battery < MIN_FOLLOW_BATTERY:
+            problems.append(f"battery {battery}% below {MIN_FOLLOW_BATTERY}%")
+    except Exception:
+        problems.append("cannot read battery")
+
+    return problems
+
+
+def _handle_takeoff_button():
+    try:
+        if drone.is_armed():
+            msg = "Vehicle is already armed — land first or reset SITL"
+            print(msg)
+            set_hud_status(msg, (255, 255, 0), 3.0)
+            return
+    except Exception:
+        pass
+
+    problems = []
+    try:
+        if drone.get_gps_fix_type() < MIN_FOLLOW_GPS_FIX:
+            problems.append(f"GPS fix {drone.get_gps_fix_type()}/3")
+    except Exception:
+        problems.append("cannot read GPS fix")
+    try:
+        if not drone.is_ekf_ok():
+            problems.append("EKF not converged")
+    except Exception:
+        problems.append("cannot read EKF status")
+    if problems:
+        msg = "Takeoff refused: " + "; ".join(problems) + "."
+        print(msg)
+        set_hud_status(msg, (0, 0, 255), 4.0)
+        return
+
+    msg = f"Arming vehicle and taking off to {MAX_ALT:.0f}m..."
+    print(msg)
+    set_hud_status(msg, (0, 255, 255), 3.0)
+    try:
+        control.arm_and_takeoff(MAX_ALT)
+    except Exception as exc:
+        msg = f"Takeoff failed: {exc}"
+        print(msg)
+        set_hud_status(msg, (0, 0, 255), 4.0)
+        return
+    control.set_flight_altitude(MAX_ALT)
+    msg = f"Vehicle armed — holding at {MAX_ALT:.0f}m"
+    print(msg)
+    set_hud_status(msg, (0, 200, 0), 3.0)
+
+
+def _on_mouse(event, x, y, flags, param):
+    if event == cv2.EVENT_LBUTTONDOWN:
+        rect = get_takeoff_button_rect()
+        if rect is not None and rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]:
+            _handle_takeoff_button()
+            return
+    tracking_session.handle_mouse_event(event, x, y, flags, param)
+
+
 def setup():
-    global streamer
+    global streamer, _home_alt
 
     drone.set_backend(args.mode)
 
@@ -116,14 +225,20 @@ def setup():
         print("FATAL: Could not connect to vehicle. Ensure SITL is running or drone is connected.")
         sys.exit(1)
     control.set_flight_altitude(MAX_ALT)
-    print("Vehicle connected")
+    _, _, _home_alt = drone.get_position()
+    modules.app_config.HOME_ALT = _home_alt
+    print(f"Vehicle connected (home altitude {_home_alt:.1f}m)")
 
     from jetson.streaming.rtsp_server import RTSPServer
     from jetson.communication.detection_sender import Streamer
     from shared.detection_transport import UDPTransport
 
+    sgc_host = args.sgc_host
+    if sgc_host is None:
+        sgc_host = '127.0.0.1' if args.mode == 'sitl' else '192.168.1.100'
+
     rtsp = RTSPServer(width=640, height=480, fps=30, port=args.rtsp_port, jpeg_quality=args.jpeg_quality)
-    transport = UDPTransport(host=args.sgc_host, port=args.sgc_port)
+    transport = UDPTransport(host=sgc_host, port=args.sgc_port)
     streamer = Streamer(rtsp_server=rtsp, transport=transport)
     streamer.set_mode(args.mode)
 
@@ -158,7 +273,7 @@ def setup():
     print(f"[DIST] Monocular ranging: fy={_fy:.0f} object_height={args.object_height:.3f}m")
 
     streamer.start()
-    print(f"Streaming: {rtsp.stream_url} -> {args.sgc_host}:{args.sgc_port}")
+    print(f"Streaming: {rtsp.stream_url} -> {sgc_host}:{args.sgc_port}")
 
     global sgc_receiver
     sgc_receiver = SGCCommandReceiver(port=args.sgc_cmd_port)
@@ -170,7 +285,7 @@ def setup():
 
     cv2.namedWindow("Tracker", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("Tracker", DISPLAY_WIDTH, DISPLAY_HEIGHT)
-    cv2.setMouseCallback("Tracker", tracking_session.handle_mouse_event)
+    cv2.setMouseCallback("Tracker", _on_mouse)
 
     splash = _make_splash("Connecting to vehicle...")
     cv2.imshow("Tracker", splash)
@@ -182,6 +297,15 @@ def _handle_sgc_command(cmd, detections):
     if cmd.command_type == "select_target":
         if cmd.bbox is None:
             return
+        try:
+            rel_alt = drone.get_position()[2] - modules.app_config.HOME_ALT
+            if rel_alt < MIN_FOLLOW_ALT:
+                msg = f"Selection blocked: vehicle at {rel_alt:.1f}m — need >= {MIN_FOLLOW_ALT}m"
+                print(f"[SGC] {msg}")
+                set_hud_status(msg, (0, 0, 255), 3.0)
+                return
+        except Exception:
+            pass
         matched = _find_best_match(cmd.bbox, cmd.class_name, detections)
         if matched is not None:
             detector.select_object(matched)
@@ -191,6 +315,12 @@ def _handle_sgc_command(cmd, detections):
         else:
             print(f"[SGC] No match for {cmd.class_name} bbox={cmd.bbox}")
     elif cmd.command_type == "follow_start":
+        problems = _preflight_follow()
+        if problems:
+            msg = "Cannot follow: " + "; ".join(problems) + "."
+            print(f"[SGC] {msg}")
+            set_hud_status(msg, (0, 0, 255), 4.0)
+            return
         if cmd.bbox is None:
             if detector.get_selected_object() is not None:
                 _following = True
@@ -224,20 +354,22 @@ def _handle_sgc_command(cmd, detections):
 
 
 def _handle_keyboard():
-    global _space_down, _following
+    global _following
 
-    if keyboard.is_pressed('q'):
+    key = cv2.waitKey(1) & 0xFF
+
+    if key == ord('q'):
         land()
         return "quit"
 
-    if keyboard.is_pressed('escape'):
+    if key == 27:  # escape
         detector.clear_selection()
         tracking_session.clear_click()
         _reset_lost_state()
         _following = False
         print("Selection cleared (ESC)")
 
-    if keyboard.is_pressed('r'):
+    if key == ord('r'):
         detector.clear_selection()
         tracking_session.clear_click()
         tracking_session.reset_loss_state()
@@ -245,27 +377,32 @@ def _handle_keyboard():
         _following = False
         print("Tracker reset (R)")
 
-    if keyboard.is_pressed('h'):
+    if key == ord('h'):
         hud.hud_visible = not hud.hud_visible
         print(f"HUD: {'ON' if hud.hud_visible else 'OFF'}")
         time.sleep(0.2)
 
-    space_now = keyboard.is_pressed('space')
-    if space_now and not _space_down:
+    if key == ord(' '):
         sel = detector.get_selected_object()
         if sel is None:
-            print("No target selected. Click an object first (SPACE to follow)")
+            msg = "No target selected. Click an object first (SPACE to follow)"
+            print(msg)
+            set_hud_status(msg, (255, 255, 0), 3.0)
         elif _following:
             _following = False
             _reset_lost_state()
             print(f"Follow stopped ({sel.class_name})")
         else:
-            _following = True
-            _reset_lost_state()
-            follow_controller.reset()
-            print(f"Following: {sel.class_name}")
-
-    _space_down = space_now
+            problems = _preflight_follow()
+            if problems:
+                msg = f"Cannot follow {sel.class_name}: " + "; ".join(problems) + "."
+                print(msg)
+                set_hud_status(msg, (0, 0, 255), 4.0)
+            else:
+                _following = True
+                _reset_lost_state()
+                follow_controller.reset()
+                print(f"Following: {sel.class_name}")
 
     return None
 
@@ -520,49 +657,13 @@ def main_loop():
 
         if image is not None:
             display = cv2.resize(image, (DISPLAY_WIDTH, DISPLAY_HEIGHT), interpolation=cv2.INTER_LINEAR)
+            try:
+                display = draw_takeoff_button(display, armed=drone.is_armed())
+            except Exception:
+                pass
             cv2.imshow("Tracker", display)
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            land()
-            break
-
     return "land"
-
-
-def takeoff():
-    print("TAKEOFF")
-    splash = _make_splash("Taking off...")
-    cv2.imshow("Tracker", splash)
-    cv2.waitKey(1)
-    control.print_drone_report()
-    control.arm_and_takeoff(MAX_ALT)
-
-    print("Waiting for GPS 3D lock, EKF convergence and altitude...")
-    home_alt = None
-    t_start = time.time()
-    timeout = 30
-    while time.time() - t_start < timeout:
-        fix = drone.get_gps_fix_type()
-        ekf_ok = drone.is_ekf_ok()
-        armed = drone.is_armed()
-        mode = drone.get_mode()
-        _, _, alt = drone.get_position()
-        if home_alt is None:
-            home_alt = alt
-        rel_alt = alt - home_alt
-        status = f"GPS fix: {fix}/3  EKF: {'OK' if ekf_ok else 'converging'}  Mode: {mode}  Armed: {armed}  Alt: {rel_alt:.1f}m"
-        splash = _make_splash(status)
-        cv2.imshow("Tracker", splash)
-        cv2.waitKey(1)
-        print(f"\r  {status}\033[K", end="", flush=True)
-        if fix >= 3 and ekf_ok and armed and rel_alt >= (MAX_ALT * 0.95):
-            print("\nAll systems ready.")
-            break
-        time.sleep(0.5)
-    else:
-        print(f"\n[WARN] Convergence timeout ({timeout}s) — proceeding with current state")
-    print(f"GPS fix_type={drone.get_gps_fix_type()}  EKF OK={drone.is_ekf_ok()}")
-    return "main"
 
 
 def land():
@@ -579,6 +680,33 @@ def land():
     sys.exit(0)
 
 
+def _failsafe_rtl(reason):
+    print(f"\n[FAILSAFE] {reason}")
+    print("[FAILSAFE] Issuing RTL — vehicle will return to launch")
+    try:
+        drone.send_rtl()
+    except Exception as exc:
+        print(f"[FAILSAFE] RTL command failed: {exc}")
+    try:
+        if sgc_receiver is not None:
+            sgc_receiver.stop()
+    except Exception:
+        pass
+    try:
+        if streamer is not None:
+            streamer.stop()
+    except Exception:
+        pass
+    try:
+        detector.cleanup()
+    except Exception:
+        pass
+    try:
+        cv2.destroyAllWindows()
+    except Exception:
+        pass
+
+
 setup()
 
 # Show window immediately so user isn't staring at a blank terminal
@@ -589,16 +717,14 @@ cv2.waitKey(1)
 detector.get_image_size()
 control.configure_PID(args.control)
 
-STATE = "takeoff"
-
 try:
-    while True:
-        if STATE == "takeoff":
-            STATE = takeoff()
-        elif STATE == "main":
-            STATE = main_loop()
-        else:
-            land()
+    main_loop()
 except KeyboardInterrupt:
     print("\nShutting down...")
-    land()
+    _failsafe_rtl("Keyboard interrupt received")
+    sys.exit(130)
+except Exception:
+    import traceback
+    traceback.print_exc()
+    _failsafe_rtl("Unhandled exception")
+    sys.exit(1)

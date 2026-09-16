@@ -77,6 +77,11 @@ class _FrameHolder:
         with self._lock:
             return self._frames[self._write_idx], self._frame_id
 
+    def get_frame(self) -> Optional[np.ndarray]:
+        with self._lock:
+            frame = self._frames[self._write_idx]
+        return frame.copy() if frame is not None else None
+
     def get_jpeg(self) -> Optional[bytes]:
         with self._lock:
             frame = self._frames[self._write_idx]
@@ -222,8 +227,7 @@ class RTSPServer:
 
     def _gstreamer_write_loop(self) -> None:
         while self._running and self._gstreamer_writer:
-            with self._holder.lock:
-                frame = self._holder.frame
+            frame = self._holder.get_frame()
             if frame is None:
                 time.sleep(0.005)
                 continue
@@ -260,23 +264,50 @@ class RTSPServer:
         except (FileNotFoundError, Exception):
             return False
 
+    def _cleanup_ffmpeg(self) -> None:
+        pipe = getattr(self, "_pipe", None)
+        if pipe is None:
+            return
+        try:
+            if pipe.stdin:
+                pipe.stdin.close()
+        except Exception:
+            pass
+        if pipe.poll() is None:
+            try:
+                pipe.terminate()
+                pipe.wait(timeout=3.0)
+            except Exception:
+                try:
+                    pipe.kill()
+                except Exception:
+                    pass
+        self._pipe = None
+
     def _ffmpeg_write_loop(self) -> None:
         while self._running:
-            with self._holder.lock:
-                frame = self._holder.frame.copy() if self._holder.frame is not None else None
+            frame = self._holder.get_frame()
             if frame is None:
                 time.sleep(0.005)
                 continue
             if frame.shape[:2] != (self._height, self._width):
                 frame = cv2.resize(frame, (self._width, self._height))
+            if self._pipe is None or self._pipe.stdin is None or self._pipe.poll() is not None:
+                break
             try:
-                if self._pipe and self._pipe.stdin and self._pipe.poll() is None:
-                    self._pipe.stdin.write(frame.tobytes())
-                else:
-                    break
+                self._pipe.stdin.write(frame.tobytes())
+            except (BrokenPipeError, OSError):
+                logger.warning("FFmpeg pipe closed (client disconnected) — stopping FFmpeg backend")
+                break
+        self._cleanup_ffmpeg()
+        if self._running and self._http_thread is None:
+            try:
+                self._http_thread = _HTTPServerThread(self._holder, self._port)
+                self._http_thread.start()
+                self._backend = "mjpeg"
+                logger.info("Streaming via MJPEG HTTP (fallback after FFmpeg exited)")
             except Exception:
-                logger.exception("FFmpeg write error")
-                time.sleep(0.1)
+                logger.exception("Failed to start MJPEG fallback")
 
     def stop(self) -> None:
         self._running = False
@@ -284,17 +315,7 @@ class RTSPServer:
             self._gstreamer_writer.release()
             self._gstreamer_writer = None
         elif self._backend == "ffmpeg":
-            pipe = getattr(self, "_pipe", None)
-            if pipe:
-                try:
-                    pipe.stdin.close()
-                except Exception:
-                    pass
-                pipe.terminate()
-                try:
-                    pipe.wait(timeout=3.0)
-                except Exception:
-                    pipe.kill()
-        elif self._backend == "mjpeg" and self._http_thread:
+            self._cleanup_ffmpeg()
+        if self._http_thread:
             self._http_thread.stop()
         logger.info("Stream server stopped")

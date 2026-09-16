@@ -2,7 +2,6 @@ import time
 
 import cv2
 import numpy as np
-import torch
 
 from modules.yolo11_detector import config
 from modules.yolo11_detector.matching import (
@@ -91,7 +90,6 @@ def _predict_boxes(frame):
         conf=config.CONFIDENCE_THRESHOLD,
         iou=config.IOU_THRESHOLD,
         imgsz=config.INFERENCE_IMG_SIZE,
-        half=torch.cuda.is_available(),
         verbose=False,
     )
 

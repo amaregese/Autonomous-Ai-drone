@@ -25,6 +25,10 @@ _cached_ekf_flags = 0
 _cached_armed = False
 _cached_mode = "UNKNOWN"
 _cached_gps_fix_type = 0
+_cached_armed = False
+_cached_mode = "UNKNOWN"
+_last_status_text = ""
+_acked_commands = {}
 _telemetry_lock = threading.Lock()
 
 
@@ -46,9 +50,12 @@ def _wait_command_ack(command_id, timeout=5.0):
     master = _get_master()
     end_time = time.time() + timeout
     while time.time() < end_time:
-        msg = master.recv_match(type="COMMAND_ACK", blocking=True, timeout=0.5)
-        if msg and msg.command == command_id:
+        with _telemetry_lock:
+            msg = _acked_commands.get(command_id)
+        if msg is not None:
+            _acked_commands.pop(command_id, None)
             return msg
+        time.sleep(0.1)
     return None
 
 
@@ -73,10 +80,10 @@ def _set_mode(mode_name):
 def _message_listener():
     global _message_listener_running, _cached_lat, _cached_lon, _cached_alt
     global _cached_battery, _cached_ekf_flags
-    global _cached_armed, _cached_mode, _cached_gps_fix_type
+    global _cached_armed, _cached_mode, _cached_gps_fix_type, _last_status_text
     _message_listener_running = True
     _message_listener._last_mode = None
-    types = ["STATUSTEXT", "HEARTBEAT", "GLOBAL_POSITION_INT", "SYS_STATUS", "EKF_STATUS_REPORT", "GPS_RAW_INT"]
+    types = ["STATUSTEXT", "HEARTBEAT", "GLOBAL_POSITION_INT", "SYS_STATUS", "EKF_STATUS_REPORT", "GPS_RAW_INT", "COMMAND_ACK"]
     while _message_listener_running:
         master = _master
         if master is None:
@@ -90,10 +97,9 @@ def _message_listener():
             if mtype == "STATUSTEXT":
                 severity = msg.severity
                 prefix = ""
-                if severity <= 3:
+                if severity <= 4:
                     prefix = "AP: "
-                elif severity == 4:
-                    prefix = "AP: "
+                _last_status_text = msg.text
                 print(f"[VEHICLE] {prefix}{msg.text}")
             elif mtype == "HEARTBEAT":
                 custom = msg.custom_mode
@@ -118,6 +124,9 @@ def _message_listener():
             elif mtype == "GPS_RAW_INT":
                 with _telemetry_lock:
                     _cached_gps_fix_type = msg.fix_type
+            elif mtype == "COMMAND_ACK":
+                with _telemetry_lock:
+                    _acked_commands[msg.command] = msg
         except Exception:
             time.sleep(0.1)
 
@@ -251,6 +260,7 @@ def arm_and_takeoff(max_height):
     _set_mode("GUIDED")
     with _telemetry_lock:
         _cached_mode = "GUIDED"
+
     master.arducopter_arm()
     master.motors_armed_wait()
     with _telemetry_lock:
@@ -271,8 +281,48 @@ def arm_and_takeoff(max_height):
         0,
         max_height,
     )
-    _wait_command_ack(mavutil.mavlink.MAV_CMD_NAV_TAKEOFF)
+    ack = _wait_command_ack(mavutil.mavlink.MAV_CMD_NAV_TAKEOFF)
+    if ack is None:
+        raise RuntimeError(
+            "Takeoff timed out waiting for COMMAND_ACK "
+            f"(vehicle status: {_last_status_text or 'unknown'})"
+        )
+    if ack.result != mavutil.mavlink.MAV_RESULT_ACCEPTED:
+        raise RuntimeError(
+            f"Takeoff command rejected (result {ack.result}) "
+            f"(vehicle status: {_last_status_text or 'unknown'})"
+        )
+
     print(f"SITL: Takeoff requested to {max_height:.1f}m")
+
+    with _telemetry_lock:
+        start_alt = _cached_alt
+
+    deadline = time.time() + 30.0
+    poll_interval = 0.25
+    while time.time() < deadline:
+        time.sleep(poll_interval)
+        with _telemetry_lock:
+            armed = _cached_armed
+            alt = _cached_alt
+
+        if not armed:
+            raise RuntimeError(
+                f"Vehicle disarmed during takeoff (status: {_last_status_text or 'unknown'}) — "
+                "check failsafe/arming settings"
+            )
+
+        climbed = alt - start_alt
+        if climbed >= max_height * 0.95:
+            print(f"SITL: Reached target altitude ({climbed:.1f}m climbed)")
+            return
+
+    with _telemetry_lock:
+        alt = _cached_alt
+    raise RuntimeError(
+        f"Takeoff timeout: only climbed {alt - start_alt:.1f}m in 30s "
+        f"(status: {_last_status_text or 'unknown'})"
+    )
 
 
 def land():

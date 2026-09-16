@@ -1,4 +1,5 @@
 import cv2
+import modules.app_config
 from modules import drone
 from modules.display import set_hud_status
 
@@ -73,6 +74,14 @@ class TrackingSession:
                 missing.append("no 3D GPS fix")
             if not drone.is_ekf_ok():
                 missing.append("EKF unhealthy")
+            try:
+                rel_alt = drone.get_position()[2] - modules.app_config.HOME_ALT
+                if rel_alt < modules.app_config.MIN_FOLLOW_ALT:
+                    missing.append(
+                        f"altitude {rel_alt:.1f}m below {modules.app_config.MIN_FOLLOW_ALT}m"
+                    )
+            except Exception:
+                missing.append("cannot read altitude")
             if missing:
                 reason = ", ".join(missing)
                 control.set_visualizer_status(f"Cannot track: {reason}", (0, 0, 200), 2.0)

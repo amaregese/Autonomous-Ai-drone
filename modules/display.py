@@ -163,6 +163,41 @@ def draw_telemetry(img, altitude, battery, lat, lon, ekf_ok):
 _lost_dismiss_rect = None
 
 
+_takeoff_button_rect = None
+_TAKEOFF_BUTTON_W = 150
+_TAKEOFF_BUTTON_H = 32
+
+
+def draw_takeoff_button(img, armed: bool = False):
+    global _takeoff_button_rect
+    h, w = img.shape[:2]
+    bx = w - _TAKEOFF_BUTTON_W - 8
+    by = 4
+    _takeoff_button_rect = (bx, by, bx + _TAKEOFF_BUTTON_W, by + _TAKEOFF_BUTTON_H)
+
+    if armed:
+        bg = (0, 130, 0)
+        text = "ARMED"
+    else:
+        bg = (0, 110, 200)
+        text = "TAKEOFF 5m"
+    tc = (255, 255, 255)
+
+    overlay = img.copy()
+    cv2.rectangle(overlay, (bx, by), (bx + _TAKEOFF_BUTTON_W, by + _TAKEOFF_BUTTON_H), bg, -1)
+    cv2.addWeighted(overlay, 0.85, img, 0.15, 0, img)
+    cv2.rectangle(img, (bx, by), (bx + _TAKEOFF_BUTTON_W, by + _TAKEOFF_BUTTON_H), (200, 200, 200), 1)
+
+    tw, th = _text_size(text, 0.45, 1)
+    cy = by + (_TAKEOFF_BUTTON_H + th) // 2
+    _put_text(img, text, (bx + (_TAKEOFF_BUTTON_W - tw) // 2, cy), 0.45, tc, 1)
+    return img
+
+
+def get_takeoff_button_rect():
+    return _takeoff_button_rect
+
+
 def draw_lost_banner(img, rtl_countdown: float = -1):
     global _lost_dismiss_rect
     h, w = img.shape[:2]

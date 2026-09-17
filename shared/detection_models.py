@@ -79,6 +79,12 @@ class OverlayConfig:
     shortcut_bar_position: str = "bottom_center"
     shortcut_bar_color: str = "#828282"
     shortcut_bar_font: str = "9px monospace"
+    show_notification: bool = False
+    notification_text: str = ""
+    notification_color: str = "#ffffff"
+    notification_position: str = "center_top"
+    notification_bg: str = "rgba(0,0,0,0.75)"
+    notification_font: str = "bold 14px monospace"
 
     def to_dict(self) -> dict:
         return {
@@ -126,6 +132,12 @@ class OverlayConfig:
             "shortcut_bar_position": self.shortcut_bar_position,
             "shortcut_bar_color": self.shortcut_bar_color,
             "shortcut_bar_font": self.shortcut_bar_font,
+            "show_notification": self.show_notification,
+            "notification_text": self.notification_text,
+            "notification_color": self.notification_color,
+            "notification_position": self.notification_position,
+            "notification_bg": self.notification_bg,
+            "notification_font": self.notification_font,
         }
 
 

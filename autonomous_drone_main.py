@@ -25,11 +25,10 @@ from modules.display import (
     draw_follow_prompt,
     draw_hud_background,
     draw_hud_notification,
-    draw_status_bar,
     draw_fps,
     draw_lost_banner,
-    draw_shortcut_bar,
-    draw_takeoff_button,
+    compose_window,
+    display_to_frame,
     get_lost_dismiss_rect,
     get_takeoff_button_rect,
     set_hud_status,
@@ -73,6 +72,7 @@ args = parser.parse_args()
 modules.app_config.OBJECT_HEIGHT = args.object_height
 
 tracking_session = TrackingSession()
+tracking_session.set_mapper(display_to_frame)
 follow_controller = FollowController()
 streamer = None
 sgc_receiver = None
@@ -646,21 +646,25 @@ def main_loop():
         if hud.hud_visible:
             _update_hud_state(fps, tracker_state, selected_obj, tracking_conf, movement)
             draw_hud_background(image)
-            draw_status_bar(image, status_state,
-                            selected_obj.class_name if selected_obj else None,
-                            tracking_conf)
             draw_fps(image, fps, _last_infer_time)
             draw_hud_notification(image)
             if tracker_state == "lost" and _following and not _rtl_triggered:
                 draw_lost_banner(image, rtl_countdown)
-            draw_shortcut_bar(image)
 
         if image is not None:
-            display = cv2.resize(image, (DISPLAY_WIDTH, DISPLAY_HEIGHT), interpolation=cv2.INTER_LINEAR)
             try:
-                display = draw_takeoff_button(display, armed=drone.is_armed())
+                display = compose_window(
+                    image,
+                    status_state,
+                    selected_obj.class_name if selected_obj else None,
+                    tracking_conf,
+                    fps,
+                    _last_infer_time,
+                    armed=drone.is_armed(),
+                )
             except Exception:
-                pass
+                display = cv2.resize(image, (DISPLAY_WIDTH, DISPLAY_HEIGHT),
+                                     interpolation=cv2.INTER_LINEAR)
             cv2.imshow("Tracker", display)
 
     return "land"

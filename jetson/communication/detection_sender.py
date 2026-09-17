@@ -9,6 +9,7 @@ sys.path.insert(0, "modules")
 
 from modules import app_config
 from modules import detector_yolo11 as detector
+from modules.display import hud
 from shared.detection_models import (
     BBox,
     CameraIntrinsics,
@@ -28,6 +29,24 @@ from shared.detection_transport import DetectionTransport
 from jetson.streaming.rtsp_server import RTSPServer
 
 logger = logging.getLogger(__name__)
+
+
+def _bgr_to_hex(color: tuple) -> str:
+    try:
+        r, g, b = int(color[2]), int(color[1]), int(color[0])
+        return f"#{r:02x}{g:02x}{b:02x}"
+    except Exception:
+        return "#ffffff"
+
+
+def _active_notification() -> Optional[tuple]:
+    if not hud.notification or hud.notification_until <= time.time():
+        return None
+    if len(hud.notification_color) >= 3:
+        text_color = _bgr_to_hex(hud.notification_color)
+    else:
+        text_color = "#ff4444"
+    return hud.notification, text_color
 
 
 def _convert_detection(det, is_selected: bool, tracker_state: str) -> SharedDetection:
@@ -107,6 +126,11 @@ def _build_overlay(
 
     show_lost_banner = tracker_state == "lost" and selected_class is not None
 
+    notification = _active_notification()
+    show_notification = notification is not None
+    notification_text = notification[0] if notification else ""
+    notification_color = notification[1] if notification else "#ffffff"
+
     return OverlayConfig(
         bbox_color=bbox_color,
         bbox_line_width=2,
@@ -152,6 +176,12 @@ def _build_overlay(
         shortcut_bar_position="bottom_center",
         shortcut_bar_color="#828282",
         shortcut_bar_font="9px monospace",
+        show_notification=show_notification,
+        notification_text=notification_text,
+        notification_color=notification_color,
+        notification_position="center_top",
+        notification_bg="rgba(0,0,0,0.75)",
+        notification_font="bold 14px monospace",
     )
 
 

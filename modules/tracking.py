@@ -15,6 +15,7 @@ class TrackingSession:
         self._frame_h = 480
         self._display_w = 960
         self._display_h = 720
+        self._mapper = None
 
     def set_frame_size(self, frame_w, frame_h, display_w, display_h):
         self._frame_w = frame_w
@@ -27,9 +28,18 @@ class TrackingSession:
         fy = display_y * self._frame_h / self._display_h
         return int(fx), int(fy)
 
+    def set_mapper(self, fn):
+        self._mapper = fn
+
     def handle_mouse_event(self, event, x, y, flags, param):
         if event == cv2.EVENT_LBUTTONDOWN:
-            self.mouse_click_x, self.mouse_click_y = self._to_frame_coords(x, y)
+            if self._mapper is not None:
+                mapped = self._mapper(x, y)
+                if mapped is None:
+                    return
+                self.mouse_click_x, self.mouse_click_y = mapped
+            else:
+                self.mouse_click_x, self.mouse_click_y = self._to_frame_coords(x, y)
         elif event == cv2.EVENT_RBUTTONDOWN:
             self.right_click = True
 

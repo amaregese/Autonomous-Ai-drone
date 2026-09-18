@@ -10,8 +10,8 @@ from modules.control_system.visualizer import (
 )
 
 
-def connect_drone(drone_location, start_sitl=False):
-    return drone.connect_drone(drone_location, start_sitl=start_sitl)
+def connect_drone(drone_location, start_sitl=False, baud=57600):
+    return drone.connect_drone(drone_location, start_sitl=start_sitl, baud=baud)
 
 
 def stop_sitl():

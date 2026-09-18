@@ -18,6 +18,9 @@ class SGCCommand:
     confidence: float = 0.0
     frame_w: int = 0
     frame_h: int = 0
+    channel: int = 8
+    pulse: Optional[int] = None
+    angle: Optional[float] = None
 
 
 def _bbox_iou(a: List[float], b: List[float]) -> float:
@@ -91,6 +94,9 @@ class SGCCommandReceiver:
                     confidence=msg.get("confidence", 0.0),
                     frame_w=msg.get("frame_w", 0),
                     frame_h=msg.get("frame_h", 0),
+                    channel=msg.get("channel", 8),
+                    pulse=msg.get("pulse"),
+                    angle=msg.get("angle"),
                 )
                 with self._lock:
                     self._pending = cmd

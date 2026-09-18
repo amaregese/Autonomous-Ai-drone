@@ -242,6 +242,7 @@ class TelemetryData:
     lat: float = 0.0
     lon: float = 0.0
     ekf_ok: bool = True
+    armed: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -250,6 +251,7 @@ class TelemetryData:
             "lat": round(self.lat, 6),
             "lon": round(self.lon, 6),
             "ekf_ok": self.ekf_ok,
+            "armed": self.armed,
         }
 
     @classmethod
@@ -260,6 +262,7 @@ class TelemetryData:
             lat=d.get("lat", 0.0),
             lon=d.get("lon", 0.0),
             ekf_ok=d.get("ekf_ok", True),
+            armed=d.get("armed", False),
         )
 
 

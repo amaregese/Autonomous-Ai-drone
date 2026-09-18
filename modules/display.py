@@ -244,10 +244,13 @@ def _gradient_h(img, y0, y1, top_color, bottom_color):
 # ---------------------------------------------------------------------------
 # Background chrome
 # ---------------------------------------------------------------------------
-def draw_hud_background(img):
+def draw_hud_background(img, oy=0):
     h, w = img.shape[:2]
     accent = (50, 90, 140)
-    _draw_corner_brackets(img, 3, 3, w - 4, h - 4, accent, length=22, thickness=1)
+    if oy > 0:
+        _draw_corner_brackets(img, 3, oy + 3, w - 4, oy + VIDEO_H - 4, accent, length=22, thickness=1)
+    else:
+        _draw_corner_brackets(img, 3, 3, w - 4, h - 4, accent, length=22, thickness=1)
 
 
 # ---------------------------------------------------------------------------
@@ -380,9 +383,9 @@ def draw_status_bar(img, tracker_state, target_class, tracking_conf):
 # ---------------------------------------------------------------------------
 # FPS / telemetry
 # ---------------------------------------------------------------------------
-def draw_fps(img, fps, infer_ms=0.0):
+def draw_fps(img, fps, infer_ms=0.0, oy=0):
     h, w = img.shape[:2]
-    y = 4
+    y = oy + 4
     x = 10
     x = _pill(img, x, y, "FPS", (30, 38, 50), (150, 165, 195), 0.32, 1,
               padding_h=6, padding_v=4, radius=10, outline=(60, 78, 108), dot=GREEN if fps >= 15 else AMBER)
@@ -435,7 +438,7 @@ def draw_telemetry(img, altitude, battery, lat, lon, ekf_ok):
 # ---------------------------------------------------------------------------
 # Notification
 # ---------------------------------------------------------------------------
-def draw_hud_notification(img):
+def draw_hud_notification(img, oy=0):
     remaining = hud.notification_until - time.time()
     if not hud.notification or remaining <= 0:
         hud.notification = ""
@@ -463,7 +466,7 @@ def draw_hud_notification(img):
     bw = min(tw_line + pad_x * 2 + 8, max_w)
     bh = line_h * len(lines) + pad_y * 2
     bx = max(4, w // 2 - bw // 2)
-    by = 8
+    by = oy + 8
 
     overlay = img.copy()
     _rounded_rect_fill(overlay, (bx, by), (bx + bw, by + bh), 8, (12, 14, 20))
@@ -524,10 +527,10 @@ def get_takeoff_button_rect():
 # ---------------------------------------------------------------------------
 # Lost banner
 # ---------------------------------------------------------------------------
-def draw_lost_banner(img, rtl_countdown: float = -1):
+def draw_lost_banner(img, rtl_countdown: float = -1, oy=0):
     global _lost_dismiss_rect
     h, w = img.shape[:2]
-    bar_h = 2
+    bar_h = oy + 2
     banner_h = 40
 
     alpha = 0.42 + 0.18 * abs(((time.time() * 4) % 2) - 1)

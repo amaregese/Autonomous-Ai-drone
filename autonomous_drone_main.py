@@ -1,6 +1,7 @@
 import sys
 import time
 import argparse
+import glob
 import cv2
 import numpy as np
 
@@ -36,6 +37,7 @@ from modules.display import (
     set_detector_ref,
     DISPLAY_WIDTH,
     DISPLAY_HEIGHT,
+    HEADER_FINAL,
 )
 from modules.navigation import FollowController
 from modules.tracking import TrackingSession
@@ -49,6 +51,9 @@ parser.add_argument('--debug_path', type=str, default="debug/run1")
 parser.add_argument('--mode', type=str, default='sitl', choices=['sitl', 'flight'], help='Run mode: sitl (SITL) or flight (real drone)')
 parser.add_argument('--control', type=str, default='PID')
 parser.add_argument('--drone_connection', type=str, default=None)
+parser.add_argument('--baud', type=int, default=57600, help='Serial baud rate for a real FCU (default: 57600)')
+parser.add_argument('--no-prompt', action='store_true',
+                    help='Skip the connection prompt (headless): use --mode defaults')
 parser.add_argument('--model-path', type=str, default='YOLO/yolo11n.pt')
 parser.add_argument('--conf-threshold', type=float, default=None)
 parser.add_argument('--iou-threshold', type=float, default=None)
@@ -193,6 +198,87 @@ def _on_mouse(event, x, y, flags, param):
     tracking_session.handle_mouse_event(event, x, y, flags, param)
 
 
+def _serial_heartbeat_ok(path, timeout=1.5):
+    try:
+        import serial
+    except Exception:
+        return False
+    try:
+        s = serial.Serial(path, 115200, timeout=0.3)
+        s.reset_input_buffer()
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            data = s.read(256)
+            if not data:
+                continue
+            if 0xFD in data or 0xFE in data:
+                s.close()
+                return True
+        s.close()
+    except Exception:
+        pass
+    return False
+
+
+def _detect_serial_ports():
+    ports = []
+    try:
+        from serial.tools import list_ports
+        for p in list_ports.comports():
+            low = p.device.lower()
+            base = low.rsplit("/", 1)[-1]
+            if "usb" in low or base.startswith("ttyacm") or base.startswith("ttyusb") or base.startswith("com"):
+                ports.append(p.device)
+    except Exception:
+        ports = []
+    if not ports:
+        for pattern in ["/dev/cu.usb*", "/dev/ttyACM*", "/dev/ttyUSB*", "/dev/serial/by-id/*"]:
+            ports.extend(sorted(glob.glob(pattern)))
+    ports = sorted(set(ports))
+    live = [p for p in ports if _serial_heartbeat_ok(p)]
+    return live if live else ports
+
+
+def _pick_connection():
+    if args.drone_connection is not None:
+        return args.drone_connection, args.start_sitl, args.baud
+
+    sitl_string = "udpin:0.0.0.0:14550"
+    if args.no_prompt:
+        if args.mode == "flight":
+            return "/dev/ttyACM0", args.start_sitl, args.baud
+        return sitl_string, args.start_sitl, args.baud
+
+    ports = _detect_serial_ports()
+    print()
+    print("Select drone connection:")
+    print("  [1] SITL (connect to UDP 127.0.0.1:14550)")
+    print("  [2] SITL (auto-launch WSL ArduPilot)")
+    for idx, port in enumerate(ports, start=3):
+        print(f"  [{idx}] Real FCU serial/COM: {port}")
+    if not ports:
+        print("  (no serial/COM ports detected)")
+    try:
+        choice = input("Choice [1]: ").strip() or "1"
+    except (EOFError, OSError):
+        if args.mode == "flight":
+            return "/dev/ttyACM0", args.start_sitl, args.baud
+        return sitl_string, args.start_sitl, args.baud
+
+    if choice == "1":
+        return sitl_string, False, args.baud
+    if choice == "2":
+        return sitl_string, True, args.baud
+    try:
+        idx = int(choice)
+        if 3 <= idx <= 2 + len(ports):
+            return ports[idx - 3], False, args.baud
+    except ValueError:
+        pass
+    print(f"Invalid choice '{choice}', defaulting to SITL.")
+    return sitl_string, False, args.baud
+
+
 def setup():
     global streamer, _home_alt
 
@@ -213,16 +299,11 @@ def setup():
 
     print("connecting to drone")
 
-    if args.drone_connection is None:
-        if args.mode == "flight":
-            connection_string = '/dev/ttyACM0'
-        else:
-            connection_string = 'udpin:0.0.0.0:14550'
-    else:
-        connection_string = args.drone_connection
+    connection_string, start_sitl, baud = _pick_connection()
+    print(f"drone link: {connection_string} (baud {baud})")
 
-    if not control.connect_drone(connection_string, start_sitl=args.start_sitl):
-        print("FATAL: Could not connect to vehicle. Ensure SITL is running or drone is connected.")
+    if not control.connect_drone(connection_string, start_sitl=start_sitl, baud=baud):
+        print("FATAL: Could not connect to vehicle. Ensure SITL is running or the FCU is connected.")
         sys.exit(1)
     control.set_flight_altitude(MAX_ALT)
     _, _, _home_alt = drone.get_position()
@@ -297,15 +378,6 @@ def _handle_sgc_command(cmd, detections):
     if cmd.command_type == "select_target":
         if cmd.bbox is None:
             return
-        try:
-            rel_alt = drone.get_position()[2] - modules.app_config.HOME_ALT
-            if rel_alt < MIN_FOLLOW_ALT:
-                msg = f"Selection blocked: vehicle at {rel_alt:.1f}m — need >= {MIN_FOLLOW_ALT}m"
-                print(f"[SGC] {msg}")
-                set_hud_status(msg, (0, 0, 255), 3.0)
-                return
-        except Exception:
-            pass
         matched = _find_best_match(cmd.bbox, cmd.class_name, detections)
         if matched is not None:
             detector.select_object(matched)
@@ -351,6 +423,24 @@ def _handle_sgc_command(cmd, detections):
         _following = False
         _reset_lost_state()
         print("[SGC] Follow stopped")
+    elif cmd.command_type == "takeoff":
+        print("[SGC] Takeoff requested")
+        _handle_takeoff_button()
+    elif cmd.command_type == "servo":
+        try:
+            if cmd.pulse is not None:
+                pulse = int(cmd.pulse)
+            elif cmd.angle is not None:
+                pulse = int(1500 + cmd.angle * (500.0 / 45.0))
+                pulse = max(1000, min(2000, pulse))
+            else:
+                pulse = 1500
+            drone.send_servo(channel=cmd.channel, pulse=pulse)
+            print(f"[SGC] Servo: ch{cmd.channel} -> {pulse}us")
+        except ValueError as exc:
+            msg = f"Servo refused: {exc}"
+            print(f"[SGC] {msg}")
+            set_hud_status(msg, (0, 0, 255), 4.0)
 
 
 def _handle_keyboard():
@@ -424,6 +514,7 @@ def _build_telemetry() -> TelemetryData:
     bat = 100
     lat, lon = 0.0, 0.0
     ekf = True
+    armed = False
 
     try:
         lat, lon, alt = drone.get_position()
@@ -440,7 +531,12 @@ def _build_telemetry() -> TelemetryData:
     except Exception:
         pass
 
-    return TelemetryData(altitude=alt, battery=bat, lat=lat, lon=lon, ekf_ok=ekf)
+    try:
+        armed = drone.is_armed()
+    except Exception:
+        pass
+
+    return TelemetryData(altitude=alt, battery=bat, lat=lat, lon=lon, ekf_ok=ekf, armed=armed)
 
 
 def _make_splash(text: str) -> np.ndarray:
@@ -645,11 +741,6 @@ def main_loop():
 
         if hud.hud_visible:
             _update_hud_state(fps, tracker_state, selected_obj, tracking_conf, movement)
-            draw_hud_background(image)
-            draw_fps(image, fps, _last_infer_time)
-            draw_hud_notification(image)
-            if tracker_state == "lost" and _following and not _rtl_triggered:
-                draw_lost_banner(image, rtl_countdown)
 
         if image is not None:
             try:
@@ -665,6 +756,12 @@ def main_loop():
             except Exception:
                 display = cv2.resize(image, (DISPLAY_WIDTH, DISPLAY_HEIGHT),
                                      interpolation=cv2.INTER_LINEAR)
+            if hud.hud_visible:
+                draw_hud_background(display, oy=HEADER_FINAL)
+                draw_fps(display, fps, _last_infer_time, oy=HEADER_FINAL)
+                draw_hud_notification(display, oy=HEADER_FINAL)
+                if tracker_state == "lost" and _following and not _rtl_triggered:
+                    draw_lost_banner(display, rtl_countdown, oy=HEADER_FINAL)
             cv2.imshow("Tracker", display)
 
     return "land"

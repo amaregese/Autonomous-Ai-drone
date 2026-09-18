@@ -149,6 +149,13 @@ def hold_position():
         return backend.hold_position()
 
 
+def send_servo(channel=8, pulse=1500):
+    backend = _get_backend()
+    if backend is not None:
+        return backend.send_servo(channel=channel, pulse=pulse)
+    print(f"Mock: Servo on RC channel {channel} at {pulse}us")
+
+
 def send_rtl():
     backend = _get_backend()
     if backend is not None:

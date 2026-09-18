@@ -132,19 +132,8 @@ def _message_listener():
 
 
 def _mode_id_to_name(type_id, custom_mode):
-    mode_mapping = {
-        0: {0: "STABILIZE", 2: "ACRO", 3: "ALT_HOLD", 4: "AUTO", 5: "GUIDED",
-            6: "LOITER", 9: "LAND", 16: "POSHOLD"},
-        2: {0: "STABILIZE", 1: "ACRO", 2: "ALT_HOLD", 3: "AUTO", 4: "GUIDED",
-            5: "LOITER", 6: "RTL", 7: "CIRCLE", 9: "LAND", 11: "DRIFT",
-            13: "SPORT", 16: "POSHOLD", 17: "BRAKE", 18: "THROW",
-            19: "AVOID_ADSB", 20: "GUIDED_NOGPS", 21: "SMART_RTL",
-            22: "FLOWHOLD", 23: "FOLLOW", 24: "ZIGZAG", 25: "SYSTID",
-            26: "AUTOTUNE", 27: "QSTABILIZE", 28: "QHOVER", 29: "QLOITER",
-            30: "QLAND", 31: "QRTL"},
-    }
-    modes = mode_mapping.get(type_id, {})
-    return modes.get(custom_mode)
+    table = mavutil.AP_MAV_TYPE_MODE_MAP.get(type_id, {})
+    return table.get(custom_mode)
 
 
 def _request_message_intervals(master):
@@ -227,6 +216,7 @@ def connect_drone(connection_string, waitready=True, baud=57600, start_sitl=Fals
     print(f"SITL: Connecting to vehicle on {connection_string}")
     try:
         _master = mavutil.mavlink_connection(connection_string, baud=baud)
+        _master.mavlink20()
         _master.wait_heartbeat(timeout=30)
     except Exception as exc:
         _master = None
@@ -401,6 +391,29 @@ def send_movement_command_YAW(angle):
     global _last_yaw_rate_rad_s
     with _state_lock:
         _last_yaw_rate_rad_s = math.radians(angle)
+
+
+def send_servo(channel=8, pulse=1500):
+    master = _get_master()
+    channel = int(channel)
+    if channel < 1 or channel > 8:
+        raise ValueError(f"Servo channel {channel} out of range 1-8 (RC_CHANNELS_OVERRIDE)")
+    if not (1000 <= pulse <= 2000):
+        raise ValueError(f"Servo pulse {pulse}us out of range 1000-2000")
+    chans = [0] * 8
+    chans[channel - 1] = pulse
+    master.mav.rc_channels_override_send(
+        master.target_system,
+        master.target_component,
+        chans[0],
+        chans[1],
+        chans[2],
+        chans[3],
+        chans[4],
+        chans[5],
+        chans[6],
+        chans[7],
+    )
 
 
 def hold_position():

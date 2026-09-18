@@ -4,12 +4,31 @@ import cv2
 
 from modules.yolo11_detector.config import DEFAULT_HEIGHT, DEFAULT_WIDTH
 
+_PREFERRED_4_3 = [(1280, 960), (640, 480)]
+
+
+def _request_4_3(cap):
+    """Try to force a 4:3 capture mode. Returns the actual (w, h) or None."""
+    for target_w, target_h in _PREFERRED_4_3:
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, target_w)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, target_h)
+        ret, frame = cap.read()
+        if ret and frame is not None:
+            h, w = frame.shape[:2]
+            if w > 0 and abs(w / h - 4.0 / 3.0) < 0.01:
+                return w, h
+    return None
+
 
 def _try_open_and_read(index, result):
     try:
         cap = cv2.VideoCapture(index)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if cap.isOpened():
+            dims = _request_4_3(cap)
+            if dims is not None:
+                result[index] = (cap, dims[0], dims[1])
+                return
             ret, frame = cap.read()
             if ret and frame is not None:
                 result[index] = (cap, frame.shape[1], frame.shape[0])

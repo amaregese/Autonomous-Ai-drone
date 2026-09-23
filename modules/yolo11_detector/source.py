@@ -4,11 +4,27 @@ import cv2
 
 from modules.yolo11_detector.config import DEFAULT_HEIGHT, DEFAULT_WIDTH
 
-_PREFERRED_4_3 = [(1280, 960), (640, 480)]
+_PREFERRED_4_3 = [(640, 480), (1280, 960)]
+
+
+def _open_capture(index):
+    try:
+        cap = cv2.VideoCapture(index)
+        if cap.isOpened():
+            return cap
+        cap.release()
+    except Exception:
+        pass
+    return cv2.VideoCapture(index)
 
 
 def _request_4_3(cap):
     """Try to force a 4:3 capture mode. Returns the actual (w, h) or None."""
+    ret, frame = cap.read()
+    if ret and frame is not None:
+        h, w = frame.shape[:2]
+        if w > 0 and abs(w / h - 4.0 / 3.0) < 0.01:
+            return w, h
     for target_w, target_h in _PREFERRED_4_3:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, target_w)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, target_h)
@@ -22,7 +38,7 @@ def _request_4_3(cap):
 
 def _try_open_and_read(index, result):
     try:
-        cap = cv2.VideoCapture(index)
+        cap = _open_capture(index)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if cap.isOpened():
             dims = _request_4_3(cap)
@@ -41,7 +57,26 @@ def _try_open_and_read(index, result):
     result[index] = None
 
 
-def initialize_capture():
+def initialize_capture(index=None):
+    if index is not None:
+        try:
+            cap = _open_capture(index)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            if cap.isOpened():
+                dims = _request_4_3(cap)
+                if dims is not None:
+                    print(f"Camera {index} opened ({dims[0]}x{dims[1]})")
+                    return cap, "camera", dims[0], dims[1]
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    print(f"Camera {index} opened ({frame.shape[1]}x{frame.shape[0]})")
+                    return cap, "camera", frame.shape[1], frame.shape[0]
+            cap.release()
+        except Exception:
+            pass
+        print(f"Camera {index} not available")
+        return None, None, DEFAULT_WIDTH, DEFAULT_HEIGHT
+
     # Fast path: try camera 0 directly (most common case)
     probe_result = {}
     t = threading.Thread(target=_try_open_and_read, args=(0, probe_result))

@@ -12,7 +12,10 @@ The printed fx/fy/cx/cy values are the intrinsics to pass to autonomous_drone_ma
 """
 import argparse
 import json
+import os
 import sys
+
+os.environ.setdefault("OPENCV_LOG_LEVEL", "FATAL")
 
 import cv2
 import numpy as np

@@ -54,14 +54,14 @@ def _pick_unique_candidate(scored_candidates, minimum_score, uniqueness_margin):
     return best_match, best_score
 
 
-def initialize_detector(model_path="YOLO/yolo11n.pt"):
+def initialize_detector(model_path="YOLO/yolo11n.pt", camera_index=None):
     global cap, source_type, output_width, output_height, model, classes
 
     model, classes = load_model(model_path)
     if model is None:
         return False
 
-    cap, source_type, output_width, output_height = initialize_capture()
+    cap, source_type, output_width, output_height = initialize_capture(camera_index)
     return cap is not None
 
 

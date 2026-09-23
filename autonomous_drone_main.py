@@ -2,6 +2,10 @@ import sys
 import time
 import argparse
 import glob
+import os
+
+os.environ.setdefault("OPENCV_LOG_LEVEL", "FATAL")
+
 import cv2
 import numpy as np
 
@@ -55,6 +59,7 @@ parser.add_argument('--baud', type=int, default=57600, help='Serial baud rate fo
 parser.add_argument('--no-prompt', action='store_true',
                     help='Skip the connection prompt (headless): use --mode defaults')
 parser.add_argument('--model-path', type=str, default='YOLO/yolo11n.pt')
+parser.add_argument('--camera', type=int, default=None, help='Force webcam index (default: auto-detect)')
 parser.add_argument('--conf-threshold', type=float, default=None)
 parser.add_argument('--iou-threshold', type=float, default=None)
 parser.add_argument('--min-box-area-ratio', type=float, default=None)
@@ -231,12 +236,19 @@ def _detect_serial_ports():
                 ports.append(p.device)
     except Exception:
         ports = []
-    if not ports:
+    if not ports and os.name != "nt":
         for pattern in ["/dev/cu.usb*", "/dev/ttyACM*", "/dev/ttyUSB*", "/dev/serial/by-id/*"]:
             ports.extend(sorted(glob.glob(pattern)))
     ports = sorted(set(ports))
     live = [p for p in ports if _serial_heartbeat_ok(p)]
     return live if live else ports
+
+
+def _default_fcu_serial():
+    if os.name == "nt":
+        ports = _detect_serial_ports()
+        return ports[0] if ports else "COM3"
+    return "/dev/ttyACM0"
 
 
 def _pick_connection():
@@ -246,7 +258,7 @@ def _pick_connection():
     sitl_string = "udpin:0.0.0.0:14550"
     if args.no_prompt:
         if args.mode == "flight":
-            return "/dev/ttyACM0", args.start_sitl, args.baud
+            return _default_fcu_serial(), args.start_sitl, args.baud
         return sitl_string, args.start_sitl, args.baud
 
     ports = _detect_serial_ports()
@@ -262,7 +274,7 @@ def _pick_connection():
         choice = input("Choice [1]: ").strip() or "1"
     except (EOFError, OSError):
         if args.mode == "flight":
-            return "/dev/ttyACM0", args.start_sitl, args.baud
+            return _default_fcu_serial(), args.start_sitl, args.baud
         return sitl_string, args.start_sitl, args.baud
 
     if choice == "1":
@@ -294,7 +306,7 @@ def setup():
         min_box_area_ratio=args.min_box_area_ratio,
         inference_img_size=args.imgsz,
     )
-    detector.initialize_detector(args.model_path)
+    detector.initialize_detector(args.model_path, camera_index=args.camera)
     set_detector_ref(detector)
 
     print("connecting to drone")

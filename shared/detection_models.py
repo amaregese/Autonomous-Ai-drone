@@ -201,6 +201,9 @@ class Detection:
     timestamp: float = field(default_factory=time.time)
     detection_id: int = field(default_factory=lambda: uuid.uuid4().int >> 96)
     distance: Optional[float] = None
+    distance_valid: bool = False
+    distance_source: Optional[str] = None
+    distance_confidence: float = 0.0
     selected: bool = False
     is_selected: bool = False
     tracking_state: TrackingState = TrackingState.IDLE
@@ -214,11 +217,13 @@ class Detection:
             "bbox": self.bbox.to_dict(),
             "center": self.center.to_dict(),
             "timestamp": self.timestamp,
+            "distance": round(self.distance, 3) if self.distance is not None else None,
+            "distance_valid": self.distance_valid,
+            "distance_source": self.distance_source,
+            "distance_confidence": round(self.distance_confidence, 3),
             "is_selected": self.is_selected,
             "bbox_color": self.bbox_color,
         }
-        if self.distance is not None:
-            d["distance"] = round(self.distance, 3)
         return d
 
     @classmethod
@@ -231,6 +236,9 @@ class Detection:
             center=Point.from_dict(d.get("center", {})),
             timestamp=d.get("timestamp", 0.0),
             distance=d.get("distance"),
+            distance_valid=d.get("distance_valid", d.get("distance") is not None),
+            distance_source=d.get("distance_source"),
+            distance_confidence=d.get("distance_confidence", 0.0),
             is_selected=d.get("is_selected", False),
         )
 
@@ -269,7 +277,10 @@ class TelemetryData:
 @dataclass(frozen=False, slots=True)
 class TrackingData:
     target_class: Optional[str] = None
-    distance: float = 0.0
+    distance: Optional[float] = None
+    distance_valid: bool = False
+    distance_source: Optional[str] = None
+    distance_confidence: float = 0.0
     speed: float = 0.0
     yaw_rate: float = 0.0
     confidence: float = 0.0
@@ -277,7 +288,10 @@ class TrackingData:
     def to_dict(self) -> dict:
         return {
             "target_class": self.target_class,
-            "distance": round(self.distance, 2),
+            "distance": round(self.distance, 2) if self.distance is not None else None,
+            "distance_valid": self.distance_valid,
+            "distance_source": self.distance_source,
+            "distance_confidence": round(self.distance_confidence, 3),
             "speed": round(self.speed, 2),
             "yaw_rate": round(self.yaw_rate, 2),
             "confidence": round(self.confidence, 1),
@@ -287,7 +301,10 @@ class TrackingData:
     def from_dict(cls, d: dict) -> TrackingData:
         return cls(
             target_class=d.get("target_class"),
-            distance=d.get("distance", 0.0),
+            distance=d.get("distance"),
+            distance_valid=d.get("distance_valid", d.get("distance") is not None),
+            distance_source=d.get("distance_source"),
+            distance_confidence=d.get("distance_confidence", 0.0),
             speed=d.get("speed", 0.0),
             yaw_rate=d.get("yaw_rate", 0.0),
             confidence=d.get("confidence", 0.0),

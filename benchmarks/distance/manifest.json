@@ -1,0 +1,200 @@
+{
+  "version": 1,
+  "camera": {
+    "name": "live-camera",
+    "intrinsics_source": "configured_default",
+    "frame_w": 640,
+    "frame_h": 480,
+    "intrinsics": {
+      "fx": 446.7,
+      "fy": 446.7,
+      "cx": 320.0,
+      "cy": 240.0,
+      "frame_w": 640,
+      "frame_h": 480
+    },
+    "intrinsics_notes": "fy fitted from 10 live samples (pinhole: mean d*h/1.3m, person height 1.3 m); fx=cx=cy assumed. NOT chessboard-calibrated."
+  },
+  "samples": [
+    {
+      "id": "live_001",
+      "image": "images/live_20260924_105748_001.jpg",
+      "ground_truth_distance_m": 1.6,
+      "class_name": "person",
+      "measurement_method": "manual_measurement",
+      "notes": "source=0; burst=1; 2026-09-24T10:57:48",
+      "bbox": {
+        "x": 352.0,
+        "y": 85.0,
+        "width": 94.0,
+        "height": 345.0
+      },
+      "detection_confidence": 0.6735070943832397,
+      "scene": "live_camera",
+      "lighting": "unknown",
+      "pose": "unknown"
+    },
+    {
+      "id": "live_002",
+      "image": "images/live_20260924_105821_002.jpg",
+      "ground_truth_distance_m": 1.15,
+      "class_name": "person",
+      "measurement_method": "manual_measurement",
+      "notes": "source=0; burst=1; 2026-09-24T10:58:21",
+      "bbox": {
+        "x": 351.0,
+        "y": 63.0,
+        "width": 124.0,
+        "height": 412.0
+      },
+      "detection_confidence": 0.902560830116272,
+      "scene": "live_camera",
+      "lighting": "unknown",
+      "pose": "unknown"
+    },
+    {
+      "id": "live_003",
+      "image": "images/live_20260924_105842_003.jpg",
+      "ground_truth_distance_m": 2.0,
+      "class_name": "person",
+      "measurement_method": "manual_measurement",
+      "notes": "source=0; burst=1; 2026-09-24T10:58:42",
+      "bbox": {
+        "x": 369.0,
+        "y": 96.0,
+        "width": 82.0,
+        "height": 298.0
+      },
+      "detection_confidence": 0.7815895080566406,
+      "scene": "live_camera",
+      "lighting": "unknown",
+      "pose": "unknown"
+    },
+    {
+      "id": "live_004",
+      "image": "images/live_20260924_105904_004.jpg",
+      "ground_truth_distance_m": 2.3,
+      "class_name": "person",
+      "measurement_method": "manual_measurement",
+      "notes": "source=0; burst=1; 2026-09-24T10:59:04",
+      "bbox": {
+        "x": 367.0,
+        "y": 102.0,
+        "width": 73.0,
+        "height": 271.0
+      },
+      "detection_confidence": 0.7556880116462708,
+      "scene": "live_camera",
+      "lighting": "unknown",
+      "pose": "unknown"
+    },
+    {
+      "id": "live_005",
+      "image": "images/live_20260924_105928_005.jpg",
+      "ground_truth_distance_m": 2.5,
+      "class_name": "person",
+      "measurement_method": "manual_measurement",
+      "notes": "source=0; burst=1; 2026-09-24T10:59:28",
+      "bbox": {
+        "x": 365.0,
+        "y": 107.0,
+        "width": 68.0,
+        "height": 254.0
+      },
+      "detection_confidence": 0.6249942779541016,
+      "scene": "live_camera",
+      "lighting": "unknown",
+      "pose": "unknown"
+    },
+    {
+      "id": "live_006",
+      "image": "images/live_20260924_105948_006.jpg",
+      "ground_truth_distance_m": 2.3,
+      "class_name": "person",
+      "measurement_method": "manual_measurement",
+      "notes": "source=0; burst=1; 2026-09-24T10:59:48",
+      "bbox": {
+        "x": 362.0,
+        "y": 102.0,
+        "width": 74.0,
+        "height": 272.0
+      },
+      "detection_confidence": 0.7324605584144592,
+      "scene": "live_camera",
+      "lighting": "unknown",
+      "pose": "unknown"
+    },
+    {
+      "id": "live_007",
+      "image": "images/live_20260924_110016_007.jpg",
+      "ground_truth_distance_m": 2.1,
+      "class_name": "person",
+      "measurement_method": "manual_measurement",
+      "notes": "source=0; burst=1; 2026-09-24T11:00:16",
+      "bbox": {
+        "x": 352.0,
+        "y": 97.0,
+        "width": 87.0,
+        "height": 292.0
+      },
+      "detection_confidence": 0.7620866894721985,
+      "scene": "live_camera",
+      "lighting": "unknown",
+      "pose": "unknown"
+    },
+    {
+      "id": "live_008",
+      "image": "images/live_20260924_110036_008.jpg",
+      "ground_truth_distance_m": 1.9,
+      "class_name": "person",
+      "measurement_method": "manual_measurement",
+      "notes": "source=0; burst=1; 2026-09-24T11:00:36",
+      "bbox": {
+        "x": 353.0,
+        "y": 91.0,
+        "width": 91.0,
+        "height": 317.0
+      },
+      "detection_confidence": 0.8231858611106873,
+      "scene": "live_camera",
+      "lighting": "unknown",
+      "pose": "unknown"
+    },
+    {
+      "id": "live_009",
+      "image": "images/live_20260924_110055_009.jpg",
+      "ground_truth_distance_m": 1.5,
+      "class_name": "person",
+      "measurement_method": "manual_measurement",
+      "notes": "source=0; burst=1; 2026-09-24T11:00:55",
+      "bbox": {
+        "x": 352.0,
+        "y": 73.0,
+        "width": 112.0,
+        "height": 393.0
+      },
+      "detection_confidence": 0.8877698183059692,
+      "scene": "live_camera",
+      "lighting": "unknown",
+      "pose": "unknown"
+    },
+    {
+      "id": "live_010",
+      "image": "images/live_20260924_110112_010.jpg",
+      "ground_truth_distance_m": 1.2,
+      "class_name": "person",
+      "measurement_method": "manual_measurement",
+      "notes": "source=0; burst=1; 2026-09-24T11:01:12",
+      "bbox": {
+        "x": 349.0,
+        "y": 61.0,
+        "width": 124.0,
+        "height": 414.0
+      },
+      "detection_confidence": 0.9161588549613953,
+      "scene": "live_camera",
+      "lighting": "unknown",
+      "pose": "unknown"
+    }
+  ]
+}

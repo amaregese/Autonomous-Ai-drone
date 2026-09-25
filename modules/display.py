@@ -588,6 +588,7 @@ def draw_shortcut_bar(img):
         ("SPACE", "follow"),
         ("R", "reset"),
         ("H", "hud"),
+        ("P", "panic RTL"),
         ("Q", "quit"),
     ]
     chip_w = 0
@@ -657,7 +658,79 @@ def _label_anchor(y1, y2, th, img_h):
     return max(th + 12, y1 + 8)
 
 
-def draw_detection_window(image, detections, detector):
+def _movement_value(movement, key, default=None):
+    if isinstance(movement, dict):
+        return movement.get(key, default)
+    return getattr(movement, key, default)
+
+
+def _authoritative_distance(movement, detection=None):
+    if detection is not None:
+        source = getattr(detection, "distance_source", None)
+        if source is not None:
+            distance = getattr(detection, "distance_m", None)
+            if not getattr(detection, "distance_valid", False):
+                return None
+            try:
+                distance = float(distance)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(distance) or distance <= 0.0:
+                return None
+            return distance
+    if movement is None:
+        return None
+    if isinstance(movement, dict):
+        if "distance_m" in movement:
+            distance = movement.get("distance_m")
+        elif "range_m" in movement:
+            distance = movement.get("range_m")
+        else:
+            return None
+        valid = movement.get("distance_valid", distance is not None)
+    else:
+        distance = getattr(movement, "distance_m", None)
+        if distance is None:
+            distance = getattr(movement, "range_m", None)
+        valid = getattr(movement, "distance_valid", distance is not None)
+        if valid and (
+            getattr(movement, "lost", False)
+            or not getattr(movement, "active", True)
+            or getattr(movement, "lane", None) == "no_range"
+        ):
+            return None
+    if not valid:
+        return None
+    if detection is not None:
+        target_id = _movement_value(movement, "target_detection_id")
+        if target_id is not None and target_id not in (
+            id(detection),
+            getattr(detection, "detection_id", None),
+        ):
+            return None
+    return distance
+
+
+def _format_distance(distance):
+    if distance is None:
+        return "N/A"
+    try:
+        value = float(distance)
+    except (TypeError, ValueError):
+        return "N/A"
+    if not math.isfinite(value) or value <= 0.0:
+        return "N/A"
+    return f"{value:.2f} m"
+def _detection_label(obj, is_selected, movement=None):
+    if is_selected or getattr(obj, "distance_source", None) is not None:
+        distance = _authoritative_distance(movement, obj)
+    else:
+        distance = None
+    return f"{obj.class_name} {obj.confidence:.2f} | {_format_distance(distance)}"
+
+
+def draw_detection_window(image, detections, detector, movement=None):
+
     selected_obj = detector.get_selected_object()
     h, w = image.shape[:2]
 
@@ -674,7 +747,7 @@ def draw_detection_window(image, detections, detector):
             _draw_corner_brackets(image, x1 + 3, y1 + 3, x2 - 3, y2 - 3, box_color,
                                   length=10, thickness=1)
 
-            label = f"{obj.class_name}  {obj.confidence:.0f}%"
+            label = _detection_label(obj, True, movement)
             lth = _text_size(label, 0.45, 1)[1]
             ly = _label_anchor(y1, y2, lth, h)
             _draw_label(image, label, x1, ly, (38, 26, 8), (255, 224, 150), 0.45, 1,
@@ -691,7 +764,7 @@ def draw_detection_window(image, detections, detector):
             cv2.addWeighted(overlay, dim, image, 1 - dim, 0, image)
             cv2.rectangle(image, (x1, y1), (x2, y2), edge, 1, cv2.LINE_AA)
             _draw_corner_brackets(image, x1, y1, x2, y2, edge, length=8, thickness=1)
-            label = obj.class_name
+            label = _detection_label(obj, False, movement)
             lth = _text_size(label, 0.38, 1)[1]
             ly = _label_anchor(y1, y2, lth, h)
             _draw_label(image, label, x1, ly, (44, 38, 22), (210, 200, 180), 0.38, 1)
@@ -728,16 +801,32 @@ def draw_follow_prompt(img, class_name):
           radius=14, outline=AMBER, dot=AMBER)
 
 
+def _follow_banner_text(selected_obj, movement):
+    distance = _authoritative_distance(movement, selected_obj)
+    speed = _movement_value(movement, "vel_z", 0.0)
+    yaw = _movement_value(movement, "yaw_cmd", 0.0)
+    try:
+        speed_value = float(speed)
+    except (TypeError, ValueError):
+        speed_value = 0.0
+    try:
+        yaw_value = float(yaw)
+    except (TypeError, ValueError):
+        yaw_value = 0.0
+    return (
+        f"FOLLOWING {selected_obj.class_name} | {selected_obj.confidence:.2f} | "
+        f"{_format_distance(distance)}   {speed_value:+.2f}m/s   "
+        f"YAW {yaw_value:+.1f}"
+    )
+
+
 def draw_target_tracking(img, selected_obj, movement, fps):
     h, w = img.shape[:2]
     cx, cy = w // 2, h // 2
     tx, ty = selected_obj.Center
-    dist = movement.get("lidar_dist", 0.0) or movement.get("vision_dist", 0.0)
-    speed = movement.get("vel_z", 0.0)
-    yaw = movement.get("yaw_cmd", 0.0)
-    conf = detector_get_confidence()
 
     accent = STATE_THEME["tracking"]["accent"]
+
 
     orig = img.copy()
     steps = 22
@@ -757,11 +846,8 @@ def draw_target_tracking(img, selected_obj, movement, fps):
     cv2.circle(img, (tx, ty), r + 8, accent, 1, cv2.LINE_AA)
     cv2.circle(img, (tx, ty), 3, accent, -1, cv2.LINE_AA)
 
-    bar_text = (
-        f"FOLLOW {selected_obj.class_name}   "
-        f"{dist:.1f}m   {speed:+.2f}m/s   "
-        f"YAW {yaw:+.1f}   {conf:.0f}%"
-    )
+    bar_text = _follow_banner_text(selected_obj, movement)
+
     scale = 0.34
     max_bar_w = w - 40
     tw, _ = _text_size(bar_text, scale, 1)

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from typing import Optional
 
 import sys
 sys.path.insert(0, "modules")
 
-from modules import app_config
 from modules import detector_yolo11 as detector
 from modules.display import hud
 from shared.detection_models import (
@@ -49,9 +49,30 @@ def _active_notification() -> Optional[tuple]:
     return hud.notification, text_color
 
 
+def _detection_distance(det) -> tuple[Optional[float], bool, Optional[str], float]:
+    source = getattr(det, "distance_source", None)
+    if source is None:
+        return None, False, None, 0.0
+    distance = getattr(det, "distance_m", None)
+    valid = bool(getattr(det, "distance_valid", False))
+    if distance is not None:
+        try:
+            distance = float(distance)
+            valid = valid and math.isfinite(distance) and distance > 0.0
+        except (TypeError, ValueError):
+            distance = None
+            valid = False
+    else:
+        valid = False
+    if not valid:
+        return None, False, "none", 0.0
+    return distance, True, source, float(getattr(det, "distance_confidence", 0.0))
+
+
 def _convert_detection(det, is_selected: bool, tracker_state: str) -> SharedDetection:
     bbox = BBox(x=det.Left, y=det.Top, width=det.width, height=det.height)
     center = Point(x=det.Center[0], y=det.Center[1])
+    distance, distance_valid, distance_source, distance_confidence = _detection_distance(det)
     if is_selected:
         color = _SELECTED_COLOR
     else:
@@ -62,7 +83,11 @@ def _convert_detection(det, is_selected: bool, tracker_state: str) -> SharedDete
         bbox=bbox,
         center=center,
         timestamp=time.time(),
-        detection_id=id(det),
+        detection_id=getattr(det, "detection_id", id(det)),
+        distance=distance,
+        distance_valid=distance_valid,
+        distance_source=distance_source,
+        distance_confidence=distance_confidence,
         is_selected=is_selected,
         bbox_color=color,
     )
@@ -74,6 +99,38 @@ def _get_tracker_state(following: bool = False) -> str:
     if detector.get_selected_object() is not None:
         return "tracking" if following else "selected"
     return "idle"
+
+
+def apply_authoritative_target_distance(shared, source_detections, selected_obj, movement) -> None:
+    """Attach the one authoritative result only to its source detection."""
+    if selected_obj is None:
+        return
+    source_distance, source_valid, source, source_confidence = _detection_distance(selected_obj)
+    for raw, converted in zip(source_detections, shared):
+        if raw is not selected_obj:
+            continue
+        target_id = (movement or {}).get("target_detection_id")
+        if target_id is not None and getattr(raw, "detection_id", id(raw)) != target_id:
+            return
+        if source is not None:
+            converted.distance = source_distance
+            converted.distance_valid = source_valid
+            converted.distance_source = source
+            converted.distance_confidence = source_confidence
+            return
+        if movement and movement.get("distance_valid"):
+            distance = movement.get("distance_m")
+            try:
+                distance = float(distance)
+            except (TypeError, ValueError):
+                return
+            if math.isfinite(distance) and distance > 0.0:
+                converted.distance = distance
+                converted.distance_valid = True
+                converted.distance_source = movement.get("distance_source", "follow")
+                converted.distance_confidence = float(movement.get("distance_confidence", 0.0))
+        return
+
 
 
 def _build_overlay(
@@ -115,12 +172,20 @@ def _build_overlay(
     show_tracking_bar = tracker_state == "tracking" and movement is not None
     tracking_bar_text = None
     if show_tracking_bar and selected_class:
-        dist = movement.get("lidar_dist", 0.0) or movement.get("vision_dist", 0.0)
+        distance = movement.get("distance_m")
+        distance_valid = bool(movement.get("distance_valid")) and distance is not None
+        if distance_valid:
+            try:
+                distance = float(distance)
+                distance_valid = math.isfinite(distance) and distance > 0.0
+            except (TypeError, ValueError):
+                distance_valid = False
+        distance_text = f"{distance:.1f}m" if distance_valid else "N/A"
         speed = movement.get("vel_z", 0.0)
         yaw = movement.get("yaw_cmd", 0.0)
         tracking_bar_text = (
             f"Following: {selected_class}  |  "
-            f"Dist: {dist:.1f}m  |  Speed: {speed:.1f}m/s  |  "
+            f"Dist: {distance_text}  |  Speed: {speed:.1f}m/s  |  "
             f"Yaw: {yaw:.1f}  |  Conf: {tracking_conf:.0f}%"
         )
 
@@ -264,6 +329,7 @@ class Streamer:
             )
             for d in detections
         ]
+        apply_authoritative_target_distance(shared, detections, selected_obj, movement)
 
         overlay = _build_overlay(
             tracker_state,
@@ -277,21 +343,30 @@ class Streamer:
 
         tracking_data = None
         if selected_obj and movement:
-            dist = movement.get("lidar_dist", 0.0) or movement.get("vision_dist", 0.0)
+            distance, distance_valid, distance_source, distance_confidence = _detection_distance(selected_obj)
+            if distance_source is None:
+                distance = movement.get("distance_m")
+                distance_valid = bool(movement.get("distance_valid"))
+                distance_source = movement.get("distance_source") if distance_valid else "none"
+                distance_confidence = movement.get("distance_confidence", 0.0) if distance_valid else 0.0
+                try:
+                    distance = float(distance) if distance is not None else None
+                    distance_valid = distance_valid and distance is not None and math.isfinite(distance) and distance > 0.0
+                except (TypeError, ValueError):
+                    distance = None
+                    distance_valid = False
             tracking_data = TrackingData(
                 target_class=selected_class,
-                distance=dist,
+                distance=distance if distance_valid else None,
+                distance_valid=distance_valid,
+                distance_source=distance_source,
+                distance_confidence=distance_confidence if distance_valid else 0.0,
                 speed=movement.get("vel_z", 0.0),
                 yaw_rate=movement.get("yaw_cmd", 0.0),
                 confidence=tracking_conf,
             )
 
         intr = self._scaled_intrinsics(w, h)
-        if intr is not None and intr.fy > 0:
-            for det in shared:
-                if det.bbox.height > 0:
-                    obj_h = app_config.OBJECT_HEIGHTS.get(det.class_name, app_config.OBJECT_HEIGHT)
-                    det.distance = (obj_h * intr.fy) / det.bbox.height
         fd = FrameDetections(
             frame_id=self._frame_id,
             detections=shared,

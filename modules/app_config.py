@@ -10,6 +10,28 @@ LIDAR_BLEND_WEIGHT = 0.65
 
 TRACKING_LOST_THRESHOLD = 30.0
 
+# --- Task 9: YOLO11 + distance-estimator person-follow -----------------------
+# Distance (m) -> forward cruise speed (m/s). Distances past the last
+# breakpoint are capped at FOLLOW_MAX_SPEED_MPS.
+FOLLOW_SPEED_PROFILE = [
+    (2.0, 0.0),   # <= 2.0 m  -> hover / zero velocity
+    (3.0, 0.3),   # 2.0-3.0 m -> 0.3 m/s
+    (5.0, 0.6),   # 3.0-5.0 m -> 0.6 m/s
+    (8.0, 1.0),   # 5.0-8.0 m -> 1.0 m/s
+]                 # > 8.0 m   -> FOLLOW_MAX_SPEED_MPS
+FOLLOW_MAX_SPEED_MPS = 1.0
+FOLLOW_MIN_SPEED_MPS = 0.0
+FOLLOW_MIN_DISTANCE_M = 2.0
+FOLLOW_MAX_LATERAL_SPEED_MPS = 0.6
+FOLLOW_ACCEL_LIMIT_MPS2 = 0.5
+FOLLOW_CONFIDENCE_THRESHOLD = 0.5
+FOLLOW_TARGET_LOSS_TIMEOUT_S = 10.0
+FOLLOW_ENABLED = True
+FOLLOW_RTL_ON_LOSS = False
+FOLLOW_LATERAL_GAIN = 1.2
+FOLLOW_TARGET_CLASS = "person"
+FOLLOW_MAX_DETECTION_AGE_S = 0.5
+
 MIN_FOLLOW_ALT = 5.0
 MIN_FOLLOW_BATTERY = 20
 MIN_FOLLOW_GPS_FIX = 3

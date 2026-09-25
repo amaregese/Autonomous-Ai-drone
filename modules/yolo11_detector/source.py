@@ -7,6 +7,17 @@ from modules.yolo11_detector.config import DEFAULT_HEIGHT, DEFAULT_WIDTH
 _PREFERRED_4_3 = [(640, 480), (1280, 960)]
 
 
+def normalize_horizontal_frame(frame):
+    """Return the one normalized camera frame used by all runtime consumers.
+
+    The attached camera driver is known to deliver horizontally mirrored
+    pixels.  This is intentionally the only runtime flip: ``read_frame`` is
+    the shared boundary before YOLO, tracking, display, ranging and follow
+    control receive a frame.
+    """
+    return cv2.flip(frame, 1)
+
+
 def _open_capture(index):
     try:
         cap = cv2.VideoCapture(index)
@@ -129,4 +140,7 @@ def initialize_capture(index=None):
 def read_frame(cap, source_type):
     if cap is None or not cap.isOpened():
         return False, None
-    return cap.read()
+    ret, frame = cap.read()
+    if not ret or frame is None:
+        return ret, frame
+    return True, normalize_horizontal_frame(frame)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import socket
 import struct
 import subprocess
@@ -15,6 +16,22 @@ import cv2
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def _is_jetson() -> bool:
+    """Detect if running on NVIDIA Jetson hardware."""
+    try:
+        with open("/proc/device-tree/model", "r") as f:
+            model = f.read().lower()
+            return "jetson" in model or "orin" in model
+    except Exception:
+        pass
+    # Fallback: check for JetPack
+    try:
+        with open("/etc/nv_tegra_release", "r") as f:
+            return True
+    except Exception:
+        return False
 
 
 def _get_lan_ip() -> str:
@@ -200,13 +217,16 @@ class RTSPServer:
 
     def _try_gstreamer(self) -> bool:
         try:
-            pipeline = (
-                f"gst-launch-1.0 -v udpsink host=127.0.0.1 port={self._port} "
-                f"sync=false"
-            )
+            # Use hardware encoder on Jetson (nvv4l2h264enc), software x264enc elsewhere
+            if _is_jetson():
+                encoder = "nvv4l2h264enc insert-sps-pps=true bitrate=8000000"
+                logger.info("Jetson detected: using nvv4l2h264enc hardware encoder")
+            else:
+                encoder = "x264enc tune=zerolatency bitrate=800 speed-preset=ultrafast"
+                logger.info("Non-Jetson: using x264enc software encoder")
+
             gst_pipe = (
-                "appsrc ! videoconvert ! x264enc tune=zerolatency "
-                "bitrate=800 speed-preset=ultrafast ! rtph264pay ! udpsink "
+                f"appsrc ! videoconvert ! {encoder} ! rtph264pay ! udpsink "
                 f"host=127.0.0.1 port={self._port}"
             )
             self._gstreamer_writer = cv2.VideoWriter(

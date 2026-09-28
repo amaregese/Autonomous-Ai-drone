@@ -211,6 +211,9 @@ def connect_drone(connection_string, waitready=True, baud=57600, start_sitl=Fals
     _require_mavlink()
 
     if start_sitl:
+        if os.name != "nt":
+            raise RuntimeError("SITL auto-launch (--start-sitl) is only supported on Windows/WSL. "
+                               "On Linux/Jetson, start SITL manually or connect to a running instance.")
         _start_sitl_auto()
 
     print(f"SITL: Connecting to vehicle on {connection_string}")

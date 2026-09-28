@@ -47,18 +47,18 @@ def _request_4_3(cap):
     return None
 
 
-def _try_open_and_read(index, result):
+def _try_open_and_read(index, result, flip_camera=True):
     try:
         cap = _open_capture(index)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         if cap.isOpened():
             dims = _request_4_3(cap)
             if dims is not None:
-                result[index] = (cap, dims[0], dims[1])
+                result[index] = (cap, dims[0], dims[1], flip_camera)
                 return
             ret, frame = cap.read()
             if ret and frame is not None:
-                result[index] = (cap, frame.shape[1], frame.shape[0])
+                result[index] = (cap, frame.shape[1], frame.shape[0], flip_camera)
                 return
             cap.release()
         else:
@@ -68,7 +68,7 @@ def _try_open_and_read(index, result):
     result[index] = None
 
 
-def initialize_capture(index=None):
+def initialize_capture(index=None, flip_camera=True):
     if index is not None:
         try:
             cap = _open_capture(index)
@@ -77,35 +77,35 @@ def initialize_capture(index=None):
                 dims = _request_4_3(cap)
                 if dims is not None:
                     print(f"Camera {index} opened ({dims[0]}x{dims[1]})")
-                    return cap, "camera", dims[0], dims[1]
+                    return cap, "camera", dims[0], dims[1], flip_camera
                 ret, frame = cap.read()
                 if ret and frame is not None:
                     print(f"Camera {index} opened ({frame.shape[1]}x{frame.shape[0]})")
-                    return cap, "camera", frame.shape[1], frame.shape[0]
-            cap.release()
+                    return cap, "camera", frame.shape[1], frame.shape[0], flip_camera
+                cap.release()
         except Exception:
             pass
         print(f"Camera {index} not available")
-        return None, None, DEFAULT_WIDTH, DEFAULT_HEIGHT
+        return None, None, DEFAULT_WIDTH, DEFAULT_HEIGHT, flip_camera
 
     # Fast path: try camera 0 directly (most common case)
     probe_result = {}
-    t = threading.Thread(target=_try_open_and_read, args=(0, probe_result))
+    t = threading.Thread(target=_try_open_and_read, args=(0, probe_result, flip_camera))
     t.daemon = True
     t.start()
     t.join(timeout=5)
 
     if probe_result.get(0) is not None:
-        cap, w, h = probe_result[0]
+        cap, w, h, fc = probe_result[0]
         print(f"Camera 0 opened ({w}x{h})")
-        return cap, "camera", w, h
+        return cap, "camera", w, h, fc
 
     # Camera 0 failed — scan for available cameras
     print("Camera 0 not available, scanning...")
     available = []
     for i in range(1, 5):
         result_i = {}
-        t = threading.Thread(target=_try_open_and_read, args=(i, result_i))
+        t = threading.Thread(target=_try_open_and_read, args=(i, result_i, flip_camera))
         t.daemon = True
         t.start()
         t.join(timeout=3)
@@ -115,13 +115,13 @@ def initialize_capture(index=None):
 
     if not available:
         print("No cameras found")
-        return None, None, DEFAULT_WIDTH, DEFAULT_HEIGHT
+        return None, None, DEFAULT_WIDTH, DEFAULT_HEIGHT, flip_camera
 
     if len(available) == 1:
         index = available[0]
-        cap, w, h = probe_result[index]
+        cap, w, h, fc = probe_result[index]
         print(f"Single camera found (index {index})")
-        return cap, "camera", w, h
+        return cap, "camera", w, h, fc
 
     print(f"\n{len(available)} cameras found:")
     for i, idx in enumerate(available, start=1):
@@ -133,14 +133,16 @@ def initialize_capture(index=None):
         index = available[0]
     print(f"Using camera {index}")
 
-    cap, w, h = probe_result[index]
-    return cap, "camera", w, h
+    cap, w, h, fc = probe_result[index]
+    return cap, "camera", w, h, fc
 
 
-def read_frame(cap, source_type):
+def read_frame(cap, source_type, flip_camera=True):
     if cap is None or not cap.isOpened():
         return False, None
     ret, frame = cap.read()
     if not ret or frame is None:
         return ret, frame
-    return True, normalize_horizontal_frame(frame)
+    if flip_camera:
+        frame = normalize_horizontal_frame(frame)
+    return True, frame

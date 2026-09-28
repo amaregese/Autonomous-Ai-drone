@@ -80,7 +80,7 @@ parser.add_argument('--jpeg-quality', type=int, default=30, help='JPEG quality f
 parser.add_argument('--sgc-host', type=str, default=None, help='SGC IP address (default: 127.0.0.1 in SITL, 192.168.1.100 in flight)')
 parser.add_argument('--sgc-port', type=int, default=9001, help='SGC detection UDP port')
 parser.add_argument('--sgc-cmd-port', type=int, default=9002, help='SGC command UDP listen port')
-parser.add_argument('--start-sitl', action='store_true', help='Auto-launch SITL in WSL before connecting')
+parser.add_argument('--start-sitl', action='store_true', help='Auto-launch SITL in WSL before connecting (Windows/WSL only)')
 parser.add_argument('--intrinsics-fx', type=float, default=None, help='Camera focal length X (pixels)')
 parser.add_argument('--intrinsics-fy', type=float, default=None, help='Camera focal length Y (pixels)')
 parser.add_argument('--intrinsics-cx', type=float, default=None, help='Camera principal point X')
@@ -91,6 +91,9 @@ parser.add_argument('--intrinsics-height', type=int, default=DEFAULT_CONFIGURED_
 parser.add_argument('--auto-calibrate', action='store_true', help='Auto-detect chessboard and calibrate camera in background')
 parser.add_argument('--chessboard', type=str, default='9x6', help='Chessboard inner corners WxH (default: 9x6)')
 parser.add_argument('--object-height', type=float, default=0.25, help='Assumed object height in meters for monocular ranging (default: 0.25)')
+parser.add_argument('--headless', action='store_true', help='Run without GUI (no cv2.imshow/waitKey). For headless Jetson deployment')
+parser.add_argument('--no-flip-camera', action='store_true', help='Disable horizontal camera flip (default: flip enabled for mirrored cameras)')
+parser.add_argument('--lidar-port', type=str, default='/dev/ttyTHS1', help='LiDAR serial port (default: /dev/ttyTHS1 on Jetson)')
 
 args = parser.parse_args()
 modules.app_config.OBJECT_HEIGHT = args.object_height
@@ -292,8 +295,12 @@ def _pick_connection():
     print()
     print("Select drone connection:")
     print("  [1] SITL (connect to UDP 127.0.0.1:14550)")
-    print("  [2] SITL (auto-launch WSL ArduPilot)")
-    for idx, port in enumerate(ports, start=3):
+    if os.name == "nt":
+        print("  [2] SITL (auto-launch WSL ArduPilot)")
+        menu_offset = 3
+    else:
+        menu_offset = 2
+    for idx, port in enumerate(ports, start=menu_offset):
         print(f"  [{idx}] Real FCU serial/COM: {port}")
     if not ports:
         print("  (no serial/COM ports detected)")
@@ -306,12 +313,15 @@ def _pick_connection():
 
     if choice == "1":
         return sitl_string, False, args.baud
-    if choice == "2":
+    if choice == "2" and os.name == "nt":
         return sitl_string, True, args.baud
+    if choice == "2" and os.name != "nt":
+        print("SITL auto-launch not available on this platform. Connect to existing SITL or real FCU.")
+        return sitl_string, False, args.baud
     try:
         idx = int(choice)
-        if 3 <= idx <= 2 + len(ports):
-            return ports[idx - 3], False, args.baud
+        if menu_offset <= idx <= menu_offset - 1 + len(ports):
+            return ports[idx - menu_offset], False, args.baud
     except ValueError:
         pass
     print(f"Invalid choice '{choice}', defaulting to SITL.")
@@ -324,7 +334,7 @@ def setup():
     drone.set_backend(args.mode)
 
     print("connecting lidar")
-    lidar.connect_lidar("/dev/ttyTHS1")
+    lidar.connect_lidar(args.lidar_port)
 
     print("setting up detector")
     detector.configure_detector(
@@ -333,7 +343,7 @@ def setup():
         min_box_area_ratio=args.min_box_area_ratio,
         inference_img_size=args.imgsz,
     )
-    detector.initialize_detector(args.model_path, camera_index=args.camera)
+    detector.initialize_detector(args.model_path, camera_index=args.camera, flip_camera=not args.no_flip_camera)
     set_detector_ref(detector)
 
     print("connecting to drone")
@@ -423,13 +433,14 @@ def setup():
     hud.mode = args.mode
     hud.streaming = streamer is not None
 
-    cv2.namedWindow("Tracker", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("Tracker", DISPLAY_WIDTH, DISPLAY_HEIGHT)
-    cv2.setMouseCallback("Tracker", _on_mouse)
+    if not args.headless:
+        cv2.namedWindow("Tracker", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Tracker", DISPLAY_WIDTH, DISPLAY_HEIGHT)
+        cv2.setMouseCallback("Tracker", _on_mouse)
 
-    splash = _make_splash("Connecting to vehicle...")
-    cv2.imshow("Tracker", splash)
-    cv2.waitKey(1)
+        splash = _make_splash("Connecting to vehicle...")
+        cv2.imshow("Tracker", splash)
+        cv2.waitKey(1)
 
 
 def _handle_sgc_command(cmd, detections):
@@ -504,6 +515,9 @@ def _handle_sgc_command(cmd, detections):
 
 def _handle_keyboard():
     global _following
+
+    if args.headless:
+        return None
 
     key = cv2.waitKey(1) & 0xFF
 
@@ -916,7 +930,8 @@ def main_loop():
                 draw_hud_notification(display, oy=HEADER_FINAL)
                 if tracker_state == "lost" and _following and not _rtl_triggered:
                     draw_lost_banner(display, rtl_countdown, oy=HEADER_FINAL)
-            cv2.imshow("Tracker", display)
+            if not args.headless:
+                cv2.imshow("Tracker", display)
 
     return "land"
 
@@ -931,7 +946,8 @@ def land():
     if args.start_sitl:
         control.stop_sitl()
     detector.cleanup()
-    cv2.destroyAllWindows()
+    if not args.headless:
+        cv2.destroyAllWindows()
     sys.exit(0)
 
 
@@ -957,7 +973,8 @@ def _failsafe_rtl(reason):
     except Exception:
         pass
     try:
-        cv2.destroyAllWindows()
+        if not args.headless:
+            cv2.destroyAllWindows()
     except Exception:
         pass
 
@@ -965,9 +982,10 @@ def _failsafe_rtl(reason):
 setup()
 
 # Show window immediately so user isn't staring at a blank terminal
-splash = _make_splash("Initializing...")
-cv2.imshow("Tracker", splash)
-cv2.waitKey(1)
+if not args.headless:
+    splash = _make_splash("Initializing...")
+    cv2.imshow("Tracker", splash)
+    cv2.waitKey(1)
 
 detector.get_image_size()
 control.configure_PID(args.control)

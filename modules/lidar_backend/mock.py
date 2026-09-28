@@ -1,10 +1,12 @@
 import random
+import os
 
 last_object_area = None
 
 
 def connect_lidar(port):
-    print(f"Mock: Connecting to lidar on {port} (Windows mode)")
+    mode = "Windows" if os.name == "nt" else "Linux"
+    print(f"Mock: Connecting to lidar on {port} ({mode} mode)")
 
 
 def read_lidar_distance():

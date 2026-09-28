@@ -35,6 +35,7 @@ frame_counter = 0
 last_detections = []
 last_fps_timestamp = time.perf_counter()
 current_fps = 0.0
+flip_camera = True
 
 
 def _pick_unique_candidate(scored_candidates, minimum_score, uniqueness_margin):
@@ -54,14 +55,14 @@ def _pick_unique_candidate(scored_candidates, minimum_score, uniqueness_margin):
     return best_match, best_score
 
 
-def initialize_detector(model_path="YOLO/yolo11n.pt", camera_index=None):
+def initialize_detector(model_path="YOLO/yolo11n.pt", camera_index=None, flip_camera=True):
     global cap, source_type, output_width, output_height, model, classes
 
     model, classes = load_model(model_path)
     if model is None:
         return False
 
-    cap, source_type, output_width, output_height = initialize_capture(camera_index)
+    cap, source_type, output_width, output_height, flip_camera = initialize_capture(camera_index, flip_camera)
     return cap is not None
 
 
@@ -239,9 +240,9 @@ def detect_objects(frame):
 
 
 def get_detections():
-    global output_width, output_height, last_fps_timestamp, current_fps
+    global output_width, output_height, last_fps_timestamp, current_fps, flip_camera
 
-    ret, frame = read_frame(cap, source_type)
+    ret, frame = read_frame(cap, source_type, flip_camera)
     if not ret:
         return [], 0.0, np.zeros((config.DEFAULT_HEIGHT, config.DEFAULT_WIDTH, 3), dtype=np.uint8)
 

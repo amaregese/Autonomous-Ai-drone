@@ -18,6 +18,8 @@ ultralytics==8.4.41
 simple-pid==2.0.1
 pymavlink==2.4.49
 pyserial==3.5
+matplotlib==3.9.2
+Pillow==10.4.0
 
 # --- System packages (apt, not pip) -----------------------------------------
 # sudo apt install -y \

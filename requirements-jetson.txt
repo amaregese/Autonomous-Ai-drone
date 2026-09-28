@@ -1,0 +1,43 @@
+# Dependencies for NVIDIA Jetson Orin Nano (JetPack 6.x, aarch64)
+#
+# torch and torchvision are deliberately NOT listed here.
+# PyPI publishes no aarch64 Linux wheels with CUDA support, so
+#   pip install torch
+#   pip install torch torchvision --index-url https://pytorch.org/whl/cu121
+# BOTH FAIL on a Jetson. Install them separately from NVIDIA - see the
+# "Install torch on the Jetson" section of README.md.
+#
+# Verified target: JetPack 6.2 / 6.2.1 (Jetson Linux 36.4.3 / 36.4.4),
+# CUDA 12.6, TensorRT 10.3, cuDNN 9.3, Ubuntu 22.04, Python 3.10, aarch64.
+# Orin Nano compute capability is sm_87.
+
+# --- Python packages with working aarch64 wheels ----------------------------
+opencv-python==4.10.0.84
+numpy==1.26.4
+ultralytics==8.4.41
+simple-pid==2.0.1
+pymavlink==2.4.49
+pyserial==3.5
+
+# --- System packages (apt, not pip) -----------------------------------------
+# sudo apt install -y \
+#     python3-pip libopenblas-dev \
+#     gstreamer1.0-tools gstreamer1.0-plugins-good \
+#     gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+#     gstreamer1.0-libav libgstreamer1.0-dev \
+#     libgstreamer-plugins-base1.0-dev
+#
+# TensorRT ships with JetPack; verify with:
+#     python3 -c "import tensorrt; print(tensorrt.__version__)"
+# GStreamer hardware encoder check:
+#     gst-inspect-1.0 nvv4l2h264enc
+#
+# --- OpenCV caveat ----------------------------------------------------------
+# JetPack provides its own CUDA-enabled OpenCV as the system `cv2`. Installing
+# the pip `opencv-python` above inside a venv created WITHOUT
+# --system-site-packages gives you a CPU-only OpenCV, and
+# `import cv2` can fail with a numpy/cv2 ABI mismatch.
+# Either:
+#   a) python3 -m venv --system-site-packages .venv   (reuses JetPack cv2), or
+#   b) pip install --no-deps opencv-python==4.10.0.84
+# See the README section "OpenCV and JetPack" before choosing.

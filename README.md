@@ -105,7 +105,15 @@ Common options:
 --sgc-host 192.168.1.100 --sgc-port 9001 --sgc-cmd-port 9002
 --rtsp-port 8554 --jpeg-quality 30
 --no-prompt                    # skip the interactive prompt
+--no-sgc-host-prompt           # don't ask for the SGC IP (headless)
 ```
+
+The IDE **Run** button (no arguments) works too: defaults are read from `run_config.json` in the
+repository root, so a bare launch behaves like the documented command line. Edit that file to
+change the mode, SGC address, or any other option — see
+[`run_config.json`](#run_configjson-ide--run-button-defaults). Because the SGC laptop's IP changes
+between setups, the app also asks for it once at startup — press ENTER to keep the last known
+address.
 
 Flight-safety preconditions are enforced before takeoff in `_preflight_follow`
 (`autonomous_drone_main.py:131`): minimum altitude 5 m, minimum battery 20 %, minimum GPS
@@ -191,6 +199,7 @@ Defined in `autonomous_drone_main.py`. Complete set:
 | `--rtsp-port` | 8554 | RTSP server port |
 | `--jpeg-quality` | 30 | MJPEG quality, 1–100 (lower = faster) |
 | `--sgc-host` | `None` | SGC address (default `127.0.0.1` in SITL, `192.168.1.100` in flight) |
+| `--sgc-host-prompt` | flag | ask for the SGC IP on startup unless `--sgc-host` is given |
 | `--sgc-port` | 9001 | SGC detection UDP port (drone → SGC) |
 | `--sgc-cmd-port` | 9002 | SGC command UDP listen port (SGC → drone) |
 | `--start-sitl` | flag | auto-launch SITL in WSL before connecting |
@@ -200,6 +209,89 @@ Defined in `autonomous_drone_main.py`. Complete set:
 | `--chessboard` | `9x6` | chessboard inner corners |
 | `--object-height` | 0.25 | assumed object height for monocular ranging |
 
+### `run_config.json` (IDE / Run button defaults)
+
+`modules/run_config.py` loads `run_config.json` from the repository root and uses its values as
+argparse **defaults**, so launching from PyCharm/VS Code with no arguments behaves like the
+documented command line. CLI flags always win, and a missing or malformed file is ignored (the
+built-in defaults are used). Keys may be dashed or underscored (`"sgc-host"` == `"sgc_host"`);
+boolean flags are `true`/`false`.
+
+```json
+{
+  "mode": "sitl",
+  "sgc_host": "192.168.1.247",
+  "no_prompt": true
+}
+```
+
+Set the `AAD_RUN_CONFIG` environment variable to read the file from another path. On startup the
+file that was used is echoed as `[CONFIG] defaults from ...`.
+
+Flags whose default can be `true` in this file also accept an inverse switch so they stay
+overridable from the command line: `--prompt`, `--no-start-sitl`, `--no-auto-calibrate`,
+`--no-headless`, `--flip-camera`, `--no-sgc-host-prompt`.
+
+#### Startup flow
+
+Everything that needs an answer is asked **first**, before the camera, model and simulator are
+touched, so a mistake costs a keystroke instead of a 10-second startup:
+
+```
+SGC (ground station)
+  this machine      : 192.168.1.160, 192.168.137.1
+  last known SGC    : 192.168.1.247
+  Detections are sent there over UDP; commands arrive on port 9002.
+  SGC IP address [192.168.1.247]:
+
+Starting with
+  mode          : sitl
+  drone link    : SITL over UDP (udpin:0.0.0.0:14550)
+  SGC target    : 192.168.1.247:9001   (commands come in on UDP 9002)
+  video stream  : port 8554, detection size 320px
+  model         : YOLO/yolo11n.pt
+  camera, lidar and the model load next (a few seconds).
+
+[STREAM] video:  http://192.168.1.160:8554/stream
+[STREAM] detections -> 192.168.1.247:9001 (UDP)
+[STREAM] commands <- UDP 9002 on 192.168.1.160, 192.168.137.1
+[READY] tracking is live — click an object in the window, SPACE to follow, Q to land
+```
+
+#### Choosing the SGC IP
+
+The SGC laptop gets a different address in every setup, so `sgc_host` is treated as a *suggestion*
+rather than a fixed value. Unless `--sgc-host` is passed on the command line, the app asks once
+before it opens the UDP transport:
+
+- press ENTER to reuse the last known address;
+- type an IPv4 address **or a hostname** (`my-sgc.local`) — it is resolved before use, and invalid
+  input is reported and re-asked (3 attempts) instead of failing later inside a socket;
+- a new address is used for this run only, and you are then offered
+  `Remember <ip> as the default for next time? [y/N]`, which rewrites only the `sgc_host` key;
+- if the address shares no `/24` with this machine the app prints a warning, since the SGC is then
+  probably unreachable from here;
+- if the last known value came from neither the CLI nor the file, the prompt falls back to
+  `127.0.0.1` in SITL and `192.168.1.100` in flight mode.
+
+Skip the prompt with `--sgc-host <ip>` (one-shot) or `--no-sgc-host-prompt` /
+`"sgc_host_prompt": false` in `run_config.json` (headless Jetson deployment). A closed or
+non-interactive stdin falls back to the last known address instead of failing.
+
+#### If the SGC is on a different address than configured
+
+`SGCCommandReceiver` records the sender of every command. The first time a command arrives from a
+host other than the configured `sgc_host`, the app says so once in the console and in the HUD
+banner, including the exact flag to use:
+
+```
+[SGC] SGC is at 192.168.1.51, not 192.168.1.247 - detections are going to the wrong machine.
+      Restart with --sgc-host 192.168.1.51
+```
+
+Pressing `Ctrl+C` during startup now exits cleanly with `Startup cancelled.` instead of a
+traceback, and any other startup failure prints `Startup failed: <reason>` before the traceback.
+
 ---
 
 ## Repository layout
@@ -208,11 +300,13 @@ Defined in `autonomous_drone_main.py`. Complete set:
 Autonomous-AI-Drone/
 ├── README.md                    # this file — the only documentation
 ├── autonomous_drone_main.py     # entry point / main loop
+├── run_config.json              # persisted defaults for IDE / Run button launches
 ├── requirements.txt
 ├── YOLO/
 │   └── yolo11n.pt               # tracked model weights (5.6 MB)
 ├── modules/                     # core production code
 │   ├── app_config.py            # central configuration
+│   ├── run_config.py            # run_config.json loader (argparse defaults)
 │   ├── auto_calibrate.py        # chessboard camera calibration
 │   ├── control.py               # 42-byte abstraction shim
 │   ├── detector_yolo11.py       # 42-byte abstraction shim
@@ -240,7 +334,7 @@ Autonomous-AI-Drone/
 │   ├── communication/           # detection_sender.py, sgc_receiver.py
 │   └── streaming/               # rtsp_server.py
 ├── shared/                      # detection_models.py, detection_transport.py
-├── tools/                       # 9 calibration / benchmark / diagnostic scripts
+├── tools/                       # 10 calibration / benchmark / diagnostic scripts
 ├── benchmarks/
 │   ├── camera_calibration/      # checkerboard target
 │   └── distance/                # manifest.json (calibration + empty dataset)
@@ -549,6 +643,46 @@ Inbound commands are handled by `SGCCommandReceiver` in
 `jetson/communication/sgc_receiver.py`, with matching logic in `_find_best_match`, both
 imported at `autonomous_drone_main.py:61` and dispatched at
 `_handle_sgc_command` (`autonomous_drone_main.py:435`).
+
+### Inbound command protocol (SGC → drone)
+
+One JSON object per UDP datagram to port 9002. The only required field is `type`; the drone
+parses unknown types without complaint, and every accepted command is echoed on the drone console
+as `[SGC] ...`.
+
+| `type` | Extra fields | What the drone does |
+| --- | --- | --- |
+| `select_target` | `bbox` `[x, y, w, h]`, `class_name`, `confidence`, `frame_w`, `frame_h` | matches the box against live detections (IoU ≥ 0.3) and selects it |
+| `deselect_target` | — | clears the selection (keeps the lost banner state) |
+| `follow_start` | same as `select_target`, `bbox` optional | runs the takeoff preflight, then starts person-follow |
+| `follow_stop` | — | stops following and holds position |
+| `takeoff` | — | arms and climbs to `MAX_ALT` (same checks as the on-screen TAKEOFF button) |
+| **`panic_rtl`** | — | **panic RTL: immediate return to launch, then the app stops streaming and exits** |
+| `servo` | `channel` (default 8), `pulse` in µs **or** `angle` in degrees | one servo command; `angle` is converted with `1500 + angle * 500/45` and clamped to 1000–2000 |
+
+Minimum payloads:
+
+```json
+{"type": "panic_rtl"}
+{"type": "follow_start", "bbox": [320, 240, 120, 260], "class_name": "person"}
+{"type": "servo", "channel": 8, "pulse": 1600}
+```
+
+`panic_rtl` is exactly what the on-screen `P` key does — it shares one code path,
+`_trigger_panic_rtl` (`autonomous_drone_main.py:653`), so both sources issue `drone.send_rtl()`,
+stop the detection stream, the command receiver and the camera, and exit. There is **no
+acknowledgement**: the drone console shows `[PANIC] RTL triggered by SGC command`, and on the SGC
+side the detection stream simply goes quiet — that is the acknowledgement.
+
+Any host that can reach UDP 9002 can send these commands, including `takeoff` and `panic_rtl`.
+Keep the port on the trusted bench network only.
+
+To try a command from a laptop without running the SGC:
+
+```bash
+python tools/send_sgc_command.py --host <drone-ip> --type panic_rtl
+python tools/send_sgc_command.py --host <drone-ip> --type follow_start --bbox 320 240 120 260 --class-name person
+```
 
 ---
 

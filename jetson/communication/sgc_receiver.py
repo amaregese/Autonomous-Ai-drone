@@ -66,6 +66,7 @@ class SGCCommandReceiver:
         self._running = False
         self._lock = threading.Lock()
         self._pending: Optional[SGCCommand] = None
+        self._last_peer: Optional[str] = None
 
     def start(self) -> None:
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -100,6 +101,7 @@ class SGCCommandReceiver:
                 )
                 with self._lock:
                     self._pending = cmd
+                    self._last_peer = addr[0] if addr else None
                 logger.debug("SGC command: %s", cmd.command_type)
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 logger.warning("Bad SGC command from %s: %s", addr, exc)
@@ -109,6 +111,11 @@ class SGCCommandReceiver:
             cmd = self._pending
             self._pending = None
             return cmd
+
+    def last_peer(self) -> Optional[str]:
+        """Address of the most recent SGC that sent us a command."""
+        with self._lock:
+            return self._last_peer
 
     def stop(self) -> None:
         self._running = False

@@ -2,8 +2,10 @@ import sys
 import time
 import argparse
 import glob
+import ipaddress
 import math
 import os
+import socket
 
 os.environ.setdefault("OPENCV_LOG_LEVEL", "FATAL")
 
@@ -16,6 +18,7 @@ sys.path.insert(1, 'modules')
 
 from modules import lidar, control, detector_yolo11 as detector
 from modules import drone
+from modules.run_config import config_source, get_run_defaults, save_default
 from modules.app_config import (
     MAX_ALT,
     TRACKING_LOST_THRESHOLD,
@@ -62,41 +65,71 @@ from jetson.communication.sgc_receiver import SGCCommandReceiver, _find_best_mat
 import shutil
 
 parser = argparse.ArgumentParser(description='Drive autonomous')
-parser.add_argument('--debug_path', type=str, default="debug/run1")
-parser.add_argument('--mode', type=str, default='sitl', choices=['sitl', 'flight'], help='Run mode: sitl (SITL) or flight (real drone)')
-parser.add_argument('--control', type=str, default='PID')
-parser.add_argument('--drone_connection', type=str, default=None)
-parser.add_argument('--baud', type=int, default=57600, help='Serial baud rate for a real FCU (default: 57600)')
-parser.add_argument('--no-prompt', action='store_true',
-                    help='Skip the connection prompt (headless): use --mode defaults')
-parser.add_argument('--model-path', type=str, default='YOLO/yolo11n.pt')
-parser.add_argument('--camera', type=int, default=None, help='Force webcam index (default: auto-detect)')
-parser.add_argument('--conf-threshold', type=float, default=None)
-parser.add_argument('--iou-threshold', type=float, default=None)
-parser.add_argument('--min-box-area-ratio', type=float, default=None)
-parser.add_argument('--imgsz', type=int, default=320)
-parser.add_argument('--rtsp-port', type=int, default=8554, help='RTSP server port')
-parser.add_argument('--jpeg-quality', type=int, default=30, help='JPEG quality for MJPEG stream (1-100, lower=faster)')
-parser.add_argument('--sgc-host', type=str, default=None, help='SGC IP address (default: 127.0.0.1 in SITL, 192.168.1.100 in flight)')
-parser.add_argument('--sgc-port', type=int, default=9001, help='SGC detection UDP port')
-parser.add_argument('--sgc-cmd-port', type=int, default=9002, help='SGC command UDP listen port')
-parser.add_argument('--start-sitl', action='store_true', help='Auto-launch SITL in WSL before connecting (Windows/WSL only)')
-parser.add_argument('--intrinsics-fx', type=float, default=None, help='Camera focal length X (pixels)')
-parser.add_argument('--intrinsics-fy', type=float, default=None, help='Camera focal length Y (pixels)')
-parser.add_argument('--intrinsics-cx', type=float, default=None, help='Camera principal point X')
-parser.add_argument('--intrinsics-cy', type=float, default=None, help='Camera principal point Y')
-parser.add_argument('--intrinsics-width', type=int, default=DEFAULT_CONFIGURED_INTRINSICS["frame_w"], help='Reference calibration width (pixels)')
-parser.add_argument('--intrinsics-height', type=int, default=DEFAULT_CONFIGURED_INTRINSICS["frame_h"], help='Reference calibration height (pixels)')
+# Persisted defaults (run_config.json) so an IDE run button behaves like the
+# documented command line. Explicit CLI flags still win.
+_RUN_DEFAULTS = get_run_defaults()
 
-parser.add_argument('--auto-calibrate', action='store_true', help='Auto-detect chessboard and calibrate camera in background')
-parser.add_argument('--chessboard', type=str, default='9x6', help='Chessboard inner corners WxH (default: 9x6)')
-parser.add_argument('--object-height', type=float, default=0.25, help='Assumed object height in meters for monocular ranging (default: 0.25)')
-parser.add_argument('--headless', action='store_true', help='Run without GUI (no cv2.imshow/waitKey). For headless Jetson deployment')
-parser.add_argument('--no-flip-camera', action='store_true', help='Disable horizontal camera flip (default: flip enabled for mirrored cameras)')
-parser.add_argument('--lidar-port', type=str, default='/dev/ttyTHS1', help='LiDAR serial port (default: /dev/ttyTHS1 on Jetson)')
+
+def _default(key, fallback):
+    return _RUN_DEFAULTS.get(key, fallback)
+
+
+def _add_flag(parser, enabled_flag, disabled_flag, key, fallback, help_text):
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(enabled_flag, dest=key, action="store_true",
+                       default=_default(key, fallback), help=help_text)
+    group.add_argument(disabled_flag, dest=key, action="store_false",
+                       help=argparse.SUPPRESS)
+
+
+parser.add_argument('--debug_path', type=str, default=_default("debug_path", "debug/run1"))
+parser.add_argument('--mode', type=str, default=_default('mode', 'sitl'), choices=['sitl', 'flight'], help='Run mode: sitl (SITL) or flight (real drone)')
+parser.add_argument('--control', type=str, default=_default('control', 'PID'))
+parser.add_argument('--drone_connection', type=str, default=_default('drone_connection', None))
+parser.add_argument('--baud', type=int, default=_default('baud', 57600), help='Serial baud rate for a real FCU (default: 57600)')
+_add_flag(parser, '--no-prompt', '--prompt', 'no_prompt', False,
+          'Skip the connection prompt (headless): use --mode defaults')
+parser.add_argument('--model-path', type=str, default=_default('model_path', 'YOLO/yolo11n.pt'))
+parser.add_argument('--camera', type=int, default=_default('camera', None), help='Force webcam index (default: auto-detect)')
+parser.add_argument('--conf-threshold', type=float, default=_default('conf_threshold', None))
+parser.add_argument('--iou-threshold', type=float, default=_default('iou_threshold', None))
+parser.add_argument('--min-box-area-ratio', type=float, default=_default('min_box_area_ratio', None))
+parser.add_argument('--imgsz', type=int, default=_default('imgsz', 320))
+parser.add_argument('--rtsp-port', type=int, default=_default('rtsp_port', 8554), help='RTSP server port')
+parser.add_argument('--jpeg-quality', type=int, default=_default('jpeg_quality', 30), help='JPEG quality for MJPEG stream (1-100, lower=faster)')
+parser.add_argument('--sgc-host', type=str, default=_default('sgc_host', None), help='SGC IP address (default: 127.0.0.1 in SITL, 192.168.1.100 in flight)')
+_add_flag(parser, '--sgc-host-prompt', '--no-sgc-host-prompt', 'sgc_host_prompt', True,
+          'Ask for the SGC IP on startup (skipped when --sgc-host is given)')
+parser.add_argument('--sgc-port', type=int, default=_default('sgc_port', 9001), help='SGC detection UDP port')
+parser.add_argument('--sgc-cmd-port', type=int, default=_default('sgc_cmd_port', 9002), help='SGC command UDP listen port')
+_add_flag(parser, '--start-sitl', '--no-start-sitl', 'start_sitl', False,
+          'Auto-launch SITL in WSL before connecting (Windows/WSL only)')
+parser.add_argument('--intrinsics-fx', type=float, default=_default('intrinsics_fx', None), help='Camera focal length X (pixels)')
+parser.add_argument('--intrinsics-fy', type=float, default=_default('intrinsics_fy', None), help='Camera focal length Y (pixels)')
+parser.add_argument('--intrinsics-cx', type=float, default=_default('intrinsics_cx', None), help='Camera principal point X')
+parser.add_argument('--intrinsics-cy', type=float, default=_default('intrinsics_cy', None), help='Camera principal point Y')
+parser.add_argument('--intrinsics-width', type=int, default=_default('intrinsics_width', DEFAULT_CONFIGURED_INTRINSICS["frame_w"]), help='Reference calibration width (pixels)')
+parser.add_argument('--intrinsics-height', type=int, default=_default('intrinsics_height', DEFAULT_CONFIGURED_INTRINSICS["frame_h"]), help='Reference calibration height (pixels)')
+
+_add_flag(parser, '--auto-calibrate', '--no-auto-calibrate', 'auto_calibrate', False,
+          'Auto-detect chessboard and calibrate camera in background')
+parser.add_argument('--chessboard', type=str, default=_default('chessboard', '9x6'), help='Chessboard inner corners WxH (default: 9x6)')
+parser.add_argument('--object-height', type=float, default=_default('object_height', 0.25), help='Assumed object height in meters for monocular ranging (default: 0.25)')
+_add_flag(parser, '--headless', '--no-headless', 'headless', False,
+          'Run without GUI (no cv2.imshow/waitKey). For headless Jetson deployment')
+_add_flag(parser, '--no-flip-camera', '--flip-camera', 'no_flip_camera', False,
+          'Disable horizontal camera flip (default: flip enabled for mirrored cameras)')
+parser.add_argument('--lidar-port', type=str, default=_default('lidar_port', '/dev/ttyTHS1'), help='LiDAR serial port (default: /dev/ttyTHS1 on Jetson)')
 
 args = parser.parse_args()
+_SGC_HOST_FROM_CLI = any(
+    entry == "--sgc-host" or entry.startswith("--sgc-host=") for entry in sys.argv[1:]
+)
+if _RUN_DEFAULTS:
+    print(f"[CONFIG] defaults from {config_source()} "
+          f"(command-line flags still win; --help lists every option)")
 modules.app_config.OBJECT_HEIGHT = args.object_height
+
 
 tracking_session = TrackingSession()
 tracking_session.set_mapper(display_to_frame)
@@ -106,6 +139,7 @@ tracking_session.set_mapper(display_to_frame)
 follow_controller = PersonFollowController()
 streamer = None
 sgc_receiver = None
+sgc_host = None
 _calibrator = None
 _last_infer_time = 0.0
 _DEFAULT_MANIFEST = os.path.join(os.path.dirname(__file__), "benchmarks", "distance", "manifest.json")
@@ -123,6 +157,8 @@ _lost_start_time = None
 _rtl_triggered = False
 _following = False
 _home_alt = 0.0
+_sgc_peer_warned = False
+_panic_rtl_active = False
 
 
 def _reset_lost_state():
@@ -328,8 +364,162 @@ def _pick_connection():
     return sitl_string, False, args.baud
 
 
+def _local_ipv4_addresses():
+    """Best-effort list of this machine's non-loopback IPv4 addresses.
+
+    The UDP connect is a routing-table lookup only - no packet is sent.
+    """
+    found = []
+    for probe in ("192.0.2.1", "8.8.8.8"):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                sock.settimeout(1.0)
+                sock.connect((probe, 9))
+                addr = sock.getsockname()[0]
+            finally:
+                sock.close()
+            if addr and not addr.startswith("127.") and addr not in found:
+                found.append(addr)
+        except OSError:
+            pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            addr = info[4][0]
+            if addr and not addr.startswith("127.") and addr not in found:
+                found.append(addr)
+    except OSError:
+        pass
+    return found
+
+
+def _resolve_host(value):
+    """Turn user input into an IPv4 string, or None when it is not usable."""
+    text = value.strip().rstrip("/")
+    if not text:
+        return None
+    try:
+        return str(ipaddress.ip_address(text))
+    except ValueError:
+        pass
+    try:
+        return socket.gethostbyname(text)
+    except (OSError, UnicodeError):
+        return None
+
+
+def _foreign_networks(host):
+    """Return this machine's addresses when `host` shares no /24 with them."""
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        return []
+    if addr.is_loopback:
+        return []
+    local = _local_ipv4_addresses()
+    if not local:
+        return []
+    if any(candidate.rsplit(".", 1)[0] == host.rsplit(".", 1)[0] for candidate in local):
+        return []
+    return local
+
+
+def _ask(prompt: str, fallback: str, attempts: int = 3) -> str:
+    """Prompt until we get a usable answer, or fall back on no/closed input."""
+    for _ in range(attempts):
+        try:
+            answer = input(prompt).strip()
+        except (EOFError, OSError):
+            return fallback
+        if not answer:
+            return fallback
+        resolved = _resolve_host(answer)
+        if resolved:
+            return resolved
+        print(f"  '{answer}' is not a valid IP address or hostname.")
+    print(f"  Using {fallback}.")
+    return fallback
+
+
+def _default_sgc_host() -> str:
+    configured = _default('sgc_host', None)
+    if configured:
+        return str(configured).strip()
+    return '127.0.0.1' if args.mode == 'sitl' else '192.168.1.100'
+
+
+def _remember_sgc_host(host: str) -> None:
+    try:
+        answer = input(f"  Remember {host} as the default for next time? [y/N] ").strip().lower()
+    except (EOFError, OSError):
+        return
+    if answer not in ("y", "yes"):
+        return
+    if save_default("sgc_host", host):
+        print(f"[CONFIG] saved sgc_host={host} to {config_source()}")
+    else:
+        print(f"[CONFIG] could not write {config_source()}")
+
+
+def _resolve_sgc_host() -> str:
+    """Return the SGC address, asking for it when it was not given on the CLI.
+
+    The SGC laptop changes IP between setups, so the previous value (from
+    run_config.json) is only a suggestion: press ENTER to reuse it, type a new
+    address to use it just this once (optionally saving it for next time).
+    """
+    if _SGC_HOST_FROM_CLI:
+        return _resolve_host(args.sgc_host) or args.sgc_host
+
+    fallback = _default_sgc_host()
+    if not args.sgc_host_prompt:
+        return fallback
+
+    local = _local_ipv4_addresses()
+    print()
+    print("SGC (ground station)")
+    print(f"  this machine      : {', '.join(local) if local else 'no LAN address found'}")
+    print(f"  last known SGC    : {fallback}")
+    print("  Detections are sent there over UDP; commands arrive on "
+          f"port {args.sgc_cmd_port}.")
+    chosen = _ask(f"  SGC IP address [{fallback}]: ", fallback)
+
+    foreign = _foreign_networks(chosen)
+    if foreign:
+        print(f"  WARNING: {chosen} is not on this machine's network "
+              f"({', '.join(foreign)}) - the SGC may be unreachable.")
+    if chosen != fallback:
+        _remember_sgc_host(chosen)
+    return chosen
+
+
+def _describe_link(connection_string, baud):
+    if connection_string.startswith("udpin"):
+        return f"SITL over UDP ({connection_string})"
+    return f"real FCU on {connection_string} @ {baud} baud"
+
+
+def _print_startup_summary(sgc_host, connection_string, baud):
+    print()
+    print("Starting with")
+    print(f"  mode          : {args.mode}")
+    print(f"  drone link    : {_describe_link(connection_string, baud)}")
+    print(f"  SGC target    : {sgc_host}:{args.sgc_port}   "
+          f"(commands come in on UDP {args.sgc_cmd_port})")
+    print(f"  video stream  : port {args.rtsp_port}, detection size {args.imgsz}px")
+    print(f"  model         : {args.model_path}")
+    print("  camera, lidar and the model load next (a few seconds).")
+    print()
+
+
 def setup():
-    global streamer, _home_alt, _fx, _fy, _cx, _cy, _calib_w, _calib_h
+    global streamer, _home_alt, _fx, _fy, _cx, _cy, _calib_w, _calib_h, sgc_host
+
+    # Everything that needs an answer is asked first, so a mistake is caught
+    # before the camera/model/simulator startup cost is paid.
+    sgc_host = _resolve_sgc_host()
+    connection_string, start_sitl, baud = _pick_connection()
+    _print_startup_summary(sgc_host, connection_string, baud)
 
     drone.set_backend(args.mode)
 
@@ -347,8 +537,6 @@ def setup():
     set_detector_ref(detector)
 
     print("connecting to drone")
-
-    connection_string, start_sitl, baud = _pick_connection()
     print(f"drone link: {connection_string} (baud {baud})")
 
     if not control.connect_drone(connection_string, start_sitl=start_sitl, baud=baud):
@@ -363,14 +551,11 @@ def setup():
     from jetson.communication.detection_sender import Streamer
     from shared.detection_transport import UDPTransport
 
-    sgc_host = args.sgc_host
-    if sgc_host is None:
-        sgc_host = '127.0.0.1' if args.mode == 'sitl' else '192.168.1.100'
-
     rtsp = RTSPServer(width=640, height=480, fps=30, port=args.rtsp_port, jpeg_quality=args.jpeg_quality)
     transport = UDPTransport(host=sgc_host, port=args.sgc_port)
     streamer = Streamer(rtsp_server=rtsp, transport=transport)
     streamer.set_mode(args.mode)
+
 
     if args.intrinsics_fx is not None and args.intrinsics_fy is not None:
         _fx = args.intrinsics_fx
@@ -423,12 +608,15 @@ def setup():
     print(f"[DIST] Monocular ranging: fy={_fy:.0f} object_height={args.object_height:.3f}m")
 
     streamer.start()
-    print(f"Streaming: {rtsp.stream_url} -> {sgc_host}:{args.sgc_port}")
+    print(f"[STREAM] video:  {rtsp.stream_url}")
+    print(f"[STREAM] detections -> {sgc_host}:{args.sgc_port} (UDP)")
 
     global sgc_receiver
     sgc_receiver = SGCCommandReceiver(port=args.sgc_cmd_port)
     sgc_receiver.start()
-    print(f"SGC commands listening on UDP port {args.sgc_cmd_port}")
+    print(f"[STREAM] commands <- UDP {args.sgc_cmd_port} on {', '.join(_local_ipv4_addresses()) or 'all interfaces'}")
+    print("[READY] tracking is live — click an object in the window, SPACE to follow, Q to land")
+    set_hud_status(f"Sending to SGC {sgc_host}", (0, 200, 0), 4.0)
 
     hud.mode = args.mode
     hud.streaming = streamer is not None
@@ -441,6 +629,41 @@ def setup():
         splash = _make_splash("Connecting to vehicle...")
         cv2.imshow("Tracker", splash)
         cv2.waitKey(1)
+
+
+def _check_sgc_peer():
+    """Warn once when commands arrive from a different host than we stream to.
+
+    The SGC laptop changes address between setups, so the sender is the most
+    reliable proof of where the ground station actually is.
+    """
+    global _sgc_peer_warned
+    if sgc_receiver is None or _sgc_peer_warned or not sgc_host:
+        return
+    peer = sgc_receiver.last_peer()
+    if not peer or peer == sgc_host:
+        return
+    _sgc_peer_warned = True
+    msg = f"SGC is at {peer}, not {sgc_host}"
+    print(f"[SGC] {msg} - detections are going to the wrong machine. "
+          f"Restart with --sgc-host {peer}")
+    set_hud_status(msg, (255, 200, 0), 6.0)
+
+
+def _trigger_panic_rtl(source: str) -> None:
+    """Panic RTL: one action shared by the 'P' key and the SGC `panic_rtl` command.
+
+    Issues RTL immediately, stops streaming and the command receiver, and marks
+    the run as finished so `main_loop` returns. The vehicle is NOT landed here -
+    it flies itself home.
+    """
+    global _panic_rtl_active
+    if _panic_rtl_active:
+        return
+    _panic_rtl_active = True
+    print(f"[PANIC] RTL triggered by {source}")
+    set_hud_status("PANIC RTL - returning to launch", (0, 0, 255), 6.0)
+    _failsafe_rtl(f"Panic RTL from {source}")
 
 
 def _handle_sgc_command(cmd, detections):
@@ -496,6 +719,8 @@ def _handle_sgc_command(cmd, detections):
     elif cmd.command_type == "takeoff":
         print("[SGC] Takeoff requested")
         _handle_takeoff_button()
+    elif cmd.command_type == "panic_rtl":
+        _trigger_panic_rtl("SGC command")
     elif cmd.command_type == "servo":
         try:
             if cmd.pulse is not None:
@@ -527,8 +752,7 @@ def _handle_keyboard():
 
     if key == ord('p'):
         # Panic RTL - immediate return to launch
-        print("[PANIC] Manual RTL triggered")
-        _failsafe_rtl("Manual panic RTL")
+        _trigger_panic_rtl("keyboard 'P'")
         return "quit"
 
     if key == 27:  # escape
@@ -802,7 +1026,10 @@ def main_loop():
         if sgc_receiver is not None:
             cmd = sgc_receiver.pop_command()
             if cmd is not None:
+                _check_sgc_peer()
                 _handle_sgc_command(cmd, detections)
+                if _panic_rtl_active:
+                    break
 
         _refresh_follow_estimator(width, height)
         annotate_detections(_distance_estimator._vision if _distance_estimator else None, detections, width, height)
@@ -979,7 +1206,19 @@ def _failsafe_rtl(reason):
         pass
 
 
-setup()
+try:
+    setup()
+except KeyboardInterrupt:
+    print("\nStartup cancelled.")
+    sys.exit(130)
+except SystemExit:
+    raise
+except Exception as exc:
+    import traceback
+    print(f"\nStartup failed: {exc}")
+    print("Re-run with more detail:")
+    traceback.print_exc()
+    sys.exit(1)
 
 # Show window immediately so user isn't staring at a blank terminal
 if not args.headless:
@@ -1001,3 +1240,7 @@ except Exception:
     traceback.print_exc()
     _failsafe_rtl("Unhandled exception")
     sys.exit(1)
+
+if _panic_rtl_active:
+    print("[PANIC] Vehicle is flying itself home — the app has stopped streaming and exited.")
+    sys.exit(0)

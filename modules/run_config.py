@@ -9,9 +9,9 @@ Usage:
   of the CLI options (dashed or underscored keys both work):
 
     {
-      "mode": "sitl",
-      "sgc_host": "192.168.1.247",
-      "no_prompt": true
+      "mode": "flight",
+      "drone_link": "auto",
+      "sgc_host": "192.168.1.247"
     }
 
   A missing or malformed file is not an error - the built-in argparse

@@ -8,9 +8,16 @@ station.
 Examples:
     python tools/send_sgc_command.py --host 192.168.1.42 --type panic_rtl
     python tools/send_sgc_command.py --host 192.168.1.42 --type follow_start
+    python tools/send_sgc_command.py --host 192.168.1.42 --type land
+    python tools/send_sgc_command.py --host 192.168.1.42 --type disarm
     python tools/send_sgc_command.py --host 192.168.1.42 --type select_target \\
         --bbox 320 240 120 260 --class-name person
     python tools/send_sgc_command.py --host 192.168.1.42 --type servo --channel 8 --pulse 1600
+
+``takeoff`` no longer arms the vehicle: send ``arm`` first, then ``takeoff``.
+
+``land`` lands but keeps the app running, so ``disarm`` can follow once the
+vehicle is on the ground - ``disarm`` is refused above 0.5 m altitude.
 
 There is no acknowledgement: UDP is fire-and-forget. The drone echoes every
 command it accepts on its own console, and after a panic RTL it stops streaming
@@ -28,7 +35,10 @@ COMMAND_TYPES = (
     "deselect_target",
     "follow_start",
     "follow_stop",
+    "arm",
     "takeoff",
+    "land",
+    "disarm",
     "panic_rtl",
     "servo",
 )
@@ -69,8 +79,12 @@ def main(argv=None) -> int:
         payload["frame_h"] = args.frame_h
     if args.cmd_type == "servo":
         payload["channel"] = args.channel
-        payload["pulse"] = args.pulse
-        payload["angle"] = args.angle
+        # Send only the field that was given, so the payload matches the
+        # documented minimum instead of carrying explicit nulls.
+        if args.pulse is not None:
+            payload["pulse"] = args.pulse
+        if args.angle is not None:
+            payload["angle"] = args.angle
 
     body = json.dumps(payload).encode("utf-8")
     if args.dry_run:

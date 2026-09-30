@@ -37,6 +37,10 @@ MIN_FOLLOW_BATTERY = 20
 MIN_FOLLOW_GPS_FIX = 3
 MIN_FOLLOW_MODE = "GUIDED"
 
+# Disarming drops the vehicle, so it is only allowed within this many metres
+# of the recorded home altitude.
+DISARM_MAX_ALT = 0.5
+
 HOME_ALT = 0.0
 
 OBJECT_HEIGHT = 0.25

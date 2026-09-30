@@ -79,19 +79,40 @@ local path; there is no auto-download anywhere in the code.
 
 ### Run
 
-SITL against ArduPilot Simulator (auto-launches SITL in WSL):
+Pick the flight controller interactively (the default — no flags needed):
+
+```bash
+python autonomous_drone_main.py
+```
+
+```
+Flight controller to connect to
+  [1] SITL - ArduPilot simulator on udpin:0.0.0.0:14550
+  [2] SITL - launch ArduPilot SITL in WSL, then connect
+  [3] Real FCU serial/COM: /dev/ttyACM0
+  [4] Real FCU serial/COM: COM7
+Choice [3]:
+```
+
+The preselected entry is the first real FCU port when `--mode flight`, otherwise SITL. Skip the
+menu entirely by pinning the link with `--drone-link`:
+
+```bash
+python autonomous_drone_main.py --drone-link sitl-launch   # start ArduPilot SITL in WSL, then connect
+python autonomous_drone_main.py --drone-link sitl          # connect to an already-running SITL
+python autonomous_drone_main.py --drone-link real          # real FCU on the first detected port
+```
+
+Or name the endpoint directly, keeping the old behaviour:
 
 ```bash
 python autonomous_drone_main.py --mode sitl --start-sitl
-```
-
-Real flight over serial:
-
-```bash
 python autonomous_drone_main.py --mode flight --drone_connection COM7
 # or on Jetson
 python autonomous_drone_main.py --mode flight --drone_connection /dev/ttyTHS1
 ```
+
+See [`--drone-link`](#choosing-the-flight-controller) for the precedence rules.
 
 Common options:
 
@@ -110,13 +131,15 @@ Common options:
 
 The IDE **Run** button (no arguments) works too: defaults are read from `run_config.json` in the
 repository root, so a bare launch behaves like the documented command line. Edit that file to
-change the mode, SGC address, or any other option — see
-[`run_config.json`](#run_configjson-ide--run-button-defaults). Because the SGC laptop's IP changes
-between setups, the app also asks for it once at startup — press ENTER to keep the last known
-address.
+change the mode, flight controller, SGC address, or any other option — see
+[`run_config.json`](#run_configjson-ide--run-button-defaults). The shipped file keeps
+`"drone_link": "auto"` and no `drone_connection` key, so the **Run** button opens the
+[flight-controller menu](#choosing-the-flight-controller) instead of always attaching to a real
+FCU. Because the SGC laptop's IP changes between setups, the app also asks for it once at startup —
+press ENTER to keep the last known address.
 
 Flight-safety preconditions are enforced before takeoff in `_preflight_follow`
-(`autonomous_drone_main.py:131`): minimum altitude 5 m, minimum battery 20 %, minimum GPS
+(`autonomous_drone_main.py:182`): minimum altitude 5 m, minimum battery 20 %, minimum GPS
 fix type 3, and FCU mode must be `GUIDED`.
 
 ### Test
@@ -170,6 +193,7 @@ The central configuration module. Two groups of constants live here.
 | `FOLLOW_TARGET_CLASS` | `"person"` | |
 | `FOLLOW_MAX_DETECTION_AGE_S` | 0.5 | stale-detection rejection |
 | `MIN_FOLLOW_ALT` / `MIN_FOLLOW_BATTERY` / `MIN_FOLLOW_GPS_FIX` / `MIN_FOLLOW_MODE` | 5.0 / 20 / 3 / `"GUIDED"` | preflight gates |
+| `DISARM_MAX_ALT` | 0.5 | how far above home altitude the vehicle may be when it is disarmed |
 
 `OBJECT_HEIGHTS` maps each of the 80 COCO classes to an assumed real-world height in metres
 (`person` 1.3, `bicycle` 1.0, `car` 1.5, `giraffe` 4.5, …). These are **approximations** used
@@ -187,7 +211,9 @@ Defined in `autonomous_drone_main.py`. Complete set:
 | `--debug_path` | `debug/run1` | debug output directory |
 | `--mode` | `sitl` | `sitl` or `flight` |
 | `--control` | `PID` | control scheme |
-| `--drone_connection` | `None` | connection string (COM port or `/dev/ttyTHS1`) |
+| `--drone-link` | `auto` | `auto` (ask), `sitl` (running SITL), `sitl-launch` (auto-start SITL in WSL), `real` (serial FCU) |
+| `--drone_connection` | `None` | explicit MAVLink endpoint; overrides `--drone-link auto` |
+| `--sitl-connection` | `udpin:0.0.0.0:14550` | MAVLink endpoint for SITL |
 | `--baud` | 57600 | serial baud for a real FCU |
 | `--no-prompt` | flag | skip interactive prompt |
 | `--model-path` | `YOLO/yolo11n.pt` | detector weights |
@@ -219,9 +245,11 @@ boolean flags are `true`/`false`.
 
 ```json
 {
-  "mode": "sitl",
-  "sgc_host": "192.168.1.247",
-  "no_prompt": true
+  "mode": "flight",
+  "drone_link": "auto",
+  "sitl_connection": "udpin:0.0.0.0:14550",
+  "baud": 115200,
+  "sgc_host": "192.168.1.160"
 }
 ```
 
@@ -235,18 +263,26 @@ overridable from the command line: `--prompt`, `--no-start-sitl`, `--no-auto-cal
 #### Startup flow
 
 Everything that needs an answer is asked **first**, before the camera, model and simulator are
-touched, so a mistake costs a keystroke instead of a 10-second startup:
+touched, so a mistake costs a keystroke instead of a 10-second startup. The flight controller is
+chosen first, because a SITL endpoint switches the run to `sitl` mode and that in turn decides the
+SGC default:
 
 ```
+Flight controller to connect to
+  [1] SITL - ArduPilot simulator on udpin:0.0.0.0:14550
+  [2] SITL - launch ArduPilot SITL in WSL, then connect
+  [3] Real FCU serial/COM: /dev/ttyACM0
+Choice [3]:
+
 SGC (ground station)
-  this machine      : 192.168.1.160, 192.168.137.1
+  this machine      : 192.168.1.160, 192.168.1.137
   last known SGC    : 192.168.1.247
   Detections are sent there over UDP; commands arrive on port 9002.
   SGC IP address [192.168.1.247]:
 
 Starting with
-  mode          : sitl
-  drone link    : SITL over UDP (udpin:0.0.0.0:14550)
+  mode          : flight
+  drone link    : real FCU on /dev/ttyACM0 @ 115200 baud
   SGC target    : 192.168.1.247:9001   (commands come in on UDP 9002)
   video stream  : port 8554, detection size 320px
   model         : YOLO/yolo11n.pt
@@ -254,9 +290,34 @@ Starting with
 
 [STREAM] video:  http://192.168.1.160:8554/stream
 [STREAM] detections -> 192.168.1.247:9001 (UDP)
-[STREAM] commands <- UDP 9002 on 192.168.1.160, 192.168.137.1
+[STREAM] commands <- UDP 9002 on 192.168.1.160, 192.168.1.137
 [READY] tracking is live — click an object in the window, SPACE to follow, Q to land
 ```
+
+#### Choosing the flight controller
+
+`--drone-link` decides what to connect to, and is resolved in this order:
+
+| `--drone-link` | Result |
+| --- | --- |
+| `real` | first detected serial/COM port, or `--drone_connection` when given; never starts SITL |
+| `sitl` | `--sitl-connection` (default `udpin:0.0.0.0:14550`) |
+| `sitl-launch` | same endpoint, and ArduPilot SITL is started in WSL first |
+| `auto` (default) | `--drone_connection` if set, else the prompt, else `--mode` when `--no-prompt` is set |
+
+Notes:
+
+- `auto` is what makes the prompt reachable. A `drone_connection` key in `run_config.json` is an
+  explicit endpoint and therefore short-circuits it — delete the key (or set `"drone_link": "auto"`)
+  to get the menu back.
+- `sitl-launch` needs WSL on Windows. Elsewhere the app says so and connects to an already-running
+  SITL instead of failing.
+- `udp*`/`tcp*` endpoints are recognised as SITL. Selecting one while `--mode flight` prints
+  `[LINK] SITL endpoint selected - running in sitl mode`, so the HUD, the SGC default and
+  `streamer.set_mode` all follow the link you actually picked.
+- Whichever option auto-launches SITL is also the one that is stopped on exit (Q), not just
+  `--start-sitl`.
+- `baud` only applies to a serial FCU; it is ignored for UDP endpoints.
 
 #### Choosing the SGC IP
 
@@ -383,26 +444,32 @@ so the baseline was 227 passed / 2 failed.
 
 | Line | Symbol | Role |
 | --- | --- | --- |
-| 125 | `_reset_lost_state` | clears tracking-loss state after a successful follow |
-| 131 | `_preflight_follow` | battery / GPS / mode / altitude gates before takeoff |
-| 181 | `_handle_takeoff_button` | on-screen takeoff button |
-| 224 | `_on_mouse` | click-to-select target |
-| 233 | `_serial_heartbeat_ok` | serial heartbeat watchdog |
-| 255 | `_detect_serial_ports` | COM-port enumeration |
-| 274 | `_default_fcu_serial` | default FCU port |
-| 281 | `_pick_connection` | connection-string selection |
-| 321 | `setup` | camera, detector, estimator, SGC, streaming initialisation |
-| 435 | `_handle_sgc_command` | inbound SGC command handling |
-| 505 | `_handle_keyboard` | `ESC` deselect, `SPACE` follow, `R` reset, `H` HUD, `Q` quit |
-| 565 | `_update_hud_state` | |
-| 577 | `_build_telemetry` | builds `TelemetryData` for the SGC payload |
-| 614 | `_selected_distance` | current target distance for the HUD |
-| 636 | `_console_status` | console status line |
-| 693 | `_follow_movement_dict` | follow command → dict for the HUD |
-| 726 | `_refresh_follow_estimator` | re-creates the estimator when intrinsics change |
-| 752 | `main_loop` | the per-frame loop |
-| 924 | `land` | |
-| 938 | `_failsafe_rtl` | RTL failsafe |
+| 177 | `_reset_lost_state` | clears tracking-loss state after a successful follow |
+| 183 | `_preflight_follow` | battery / GPS / mode / altitude gates before takeoff |
+| 233 | `_airframe_readiness_problems` | GPS-fix / EKF gates shared by ARM and TAKEOFF |
+| 253 | `_run_flight_command` | runs a blocking vehicle call on the `flight-cmd` worker thread |
+| 295 | `_handle_arm_button` | on-screen ARM button |
+| 317 | `_handle_takeoff_button` | on-screen takeoff button (requires an armed vehicle) |
+| 344 | `_handle_land_button` | on-screen LAND button (stops follow, keeps the app running) |
+| 360 | `_ground_altitude` | altitude above home, used by the disarm guard |
+| 368 | `_handle_disarm_action` | disarm (refused above `DISARM_MAX_ALT`) — `D` key / SGC `disarm` |
+| 407 | `_on_mouse` | click-to-select target, ARM, TAKEOFF and LAND buttons |
+| 418 | `_serial_heartbeat_ok` | serial heartbeat watchdog |
+| 440 | `_detect_serial_ports` | COM-port enumeration |
+| 459 | `_default_fcu_serial` | default FCU port |
+| 542 | `_pick_connection` | connection-string selection |
+| 723 | `setup` | camera, detector, estimator, SGC, streaming initialisation |
+| 885 | `_handle_sgc_command` | inbound SGC command handling |
+| 975 | `_handle_keyboard` | `ESC` deselect, `SPACE` follow, `R` reset, `H` HUD, `L` land, `D` disarm, `P` panic RTL, `Q` quit |
+| 1045 | `_update_hud_state` | |
+| 1057 | `_build_telemetry` | builds `TelemetryData` for the SGC payload |
+| 1094 | `_selected_distance` | current target distance for the HUD |
+| 1116 | `_console_status` | console status line |
+| 1173 | `_follow_movement_dict` | follow command → dict for the HUD |
+| 1206 | `_refresh_follow_estimator` | re-creates the estimator when intrinsics change |
+| 1232 | `main_loop` | the per-frame loop (drains the SGC queue, `panic_rtl` first) |
+| 1422 | `land` | |
+| 1437 | `_failsafe_rtl` | RTL failsafe |
 
 ### Data flow
 
@@ -469,12 +536,12 @@ autonomous_drone_main.py
 | `config.py`, `types.py` | thresholds and the `Detection` dataclass |
 
 Failure behaviour matters for deployment: if the weights are missing, `model.py` returns
-`(None, [])`, `api.py:57-62` returns `False`, and `autonomous_drone_main.py:336` aborts
+`(None, [])`, `api.py:57-62` returns `False`, and `autonomous_drone_main.py:752` aborts
 **before** flight setup. A missing model file is therefore a hard startup failure, not a
 degraded mode.
 
 **Target selection** — `modules/tracking.py` provides `TrackingSession`; a mouse click
-selects a detection (`_on_mouse` at `autonomous_drone_main.py:224`), and the selection
+selects a detection (`_on_mouse` at `autonomous_drone_main.py:407`), and the selection
 persists across frames.
 
 ---
@@ -575,7 +642,7 @@ rate-limited to 0.5 m/s². Measurements below `FOLLOW_CONFIDENCE_THRESHOLD` or o
 
 **Loss handling.** After `FOLLOW_TARGET_LOSS_TIMEOUT_S` (10 s) the configured loss action
 fires. `FOLLOW_RTL_ON_LOSS` is `False` by default, so the default is a non-RTL loss action;
-`_failsafe_rtl` at `autonomous_drone_main.py:938` is the separate RTL path.
+`_failsafe_rtl` at `autonomous_drone_main.py:1437` is the separate RTL path.
 
 ---
 
@@ -641,8 +708,8 @@ document, is the authoritative schema.** Classes:
 
 Inbound commands are handled by `SGCCommandReceiver` in
 `jetson/communication/sgc_receiver.py`, with matching logic in `_find_best_match`, both
-imported at `autonomous_drone_main.py:61` and dispatched at
-`_handle_sgc_command` (`autonomous_drone_main.py:435`).
+imported at `autonomous_drone_main.py:67` and dispatched at
+`_handle_sgc_command` (`autonomous_drone_main.py:885`).
 
 ### Inbound command protocol (SGC → drone)
 
@@ -656,26 +723,74 @@ as `[SGC] ...`.
 | `deselect_target` | — | clears the selection (keeps the lost banner state) |
 | `follow_start` | same as `select_target`, `bbox` optional | runs the takeoff preflight, then starts person-follow |
 | `follow_stop` | — | stops following and holds position |
-| `takeoff` | — | arms and climbs to `MAX_ALT` (same checks as the on-screen TAKEOFF button) |
+| `arm` | — | arms the vehicle in GUIDED (checks GPS fix ≥ 3 and EKF); same as the on-screen ARM button |
+| `takeoff` | — | climbs to `MAX_ALT` — **refused unless the vehicle is already armed**, so send `arm` first |
+| `land` | — | stops following, clears the target and lands; the app keeps running |
+| `disarm` | — | disarms — **refused above 0.5 m altitude**, so send `land` first |
 | **`panic_rtl`** | — | **panic RTL: immediate return to launch, then the app stops streaming and exits** |
-| `servo` | `channel` (default 8), `pulse` in µs **or** `angle` in degrees | one servo command; `angle` is converted with `1500 + angle * 500/45` and clamped to 1000–2000 |
+| `servo` | `channel` (default 8, must be 1–16), `pulse` in µs **or** `angle` in degrees | one servo command; `angle` is converted with `1500 + angle * 500/45`; both forms are clamped to 1000–2000 µs |
 
 Minimum payloads:
 
 ```json
+{"type": "arm"}
+{"type": "takeoff"}
+{"type": "land"}
+{"type": "disarm"}
 {"type": "panic_rtl"}
 {"type": "follow_start", "bbox": [320, 240, 120, 260], "class_name": "person"}
 {"type": "servo", "channel": 8, "pulse": 1600}
 ```
 
+> **SGC team: `takeoff` no longer arms.** Arming and taking off are separate controls now, matching
+> the drone UI. Send `{"type": "arm"}`, wait for the vehicle to report armed (the drone console
+> prints `Vehicle armed`), then send `{"type": "takeoff"}`. A `takeoff` on a disarmed vehicle is
+> refused with `Takeoff refused: vehicle is not armed — press ARM first` and nothing flies.
+
+> **SGC team: landing needs two commands.** There is no auto-disarm — send `{"type": "land"}`, wait
+> for touchdown, then send `{"type": "disarm"}`. `disarm` is refused while the vehicle is more than
+> `DISARM_MAX_ALT` (0.5 m) above its launch altitude, and refused outright when the altitude cannot
+> be read, because a disarmed drone falls. `land` deliberately does **not** stop the app: telemetry
+> keeps streaming so the SGC sees the vehicle settle, and the receiver stays open for `disarm`.
+
 `panic_rtl` is exactly what the on-screen `P` key does — it shares one code path,
-`_trigger_panic_rtl` (`autonomous_drone_main.py:653`), so both sources issue `drone.send_rtl()`,
+`_trigger_panic_rtl` (`autonomous_drone_main.py:869`), so both sources issue `drone.send_rtl()`,
 stop the detection stream, the command receiver and the camera, and exit. There is **no
 acknowledgement**: the drone console shows `[PANIC] RTL triggered by SGC command`, and on the SGC
 side the detection stream simply goes quiet — that is the acknowledgement.
 
-Any host that can reach UDP 9002 can send these commands, including `takeoff` and `panic_rtl`.
+Any host that can reach UDP 9002 can send these commands, including `arm`, `takeoff`, `land`,
+`disarm` and `panic_rtl`.
 Keep the port on the trusted bench network only.
+
+### Delivery semantics
+
+- **Queued, not dropped.** Commands go into a FIFO of up to `MAX_PENDING_COMMANDS` (32) and the
+  main loop drains the whole queue every frame, so a burst is never partially lost — no command
+  is overwritten before it runs. (An earlier single-slot mailbox silently overwrote unconsumed
+  commands; a `panic_rtl` could be lost behind a stray servo command.)
+- **Queued does not mean concurrent.** The queue guarantees *delivery*, not *sequencing*, and the
+  arm/takeoff/land/disarm handlers all go through `_run_flight_command`, which allows one vehicle
+  command at a time. A second one in the same batch is refused with
+  `Another command is still running` rather than interleaved with the first. SGC must therefore
+  **wait for the state to change in telemetry** before sending the dependent action: `arm` →
+  poll for `armed == true` → `takeoff`, and `land` → poll for `height < 0.5 m` → `disarm`
+  (`DISARM_MAX_ALT`). Sending `land` and `disarm` back to back always loses the disarm, because
+  disarming while airborne is refused by design.
+- **`panic_rtl` jumps the queue.** A drained batch is sorted so `panic_rtl` runs first, and the
+  loop stops processing the rest and exits — a safety command is never stuck behind cosmetic ones.
+- **A malformed packet can never take the loop down.** Each command is dispatched inside
+  `try`/`except`; a bad packet is logged as `Bad SGC command '<type>': <reason>`, the HUD shows
+  `SGC command rejected`, and the remaining commands in the batch still run.
+- **Unknown or empty `type`** is reported as `Unknown SGC command: <type>` rather than being
+  ignored, so an SGC typo shows up on the drone console instead of looking like a dead link.
+- **`bbox` is `[x, y, w, h]`** — the same form the drone sends in `detections[].bbox`
+  (`BBox(x, y, width, height)`), so a box can be echoed straight back. It is converted to corners
+  before matching. A malformed bbox (wrong length, non-numeric) logs a warning and simply does not
+  match.
+- **Servo values are validated and clamped** to 1000–2000 µs whether they arrive as `pulse` or
+  `angle`, and `channel` must be an integer in 1–16 — otherwise the command is refused with
+  `Servo refused: <reason>`.
 
 To try a command from a laptop without running the SGC:
 
@@ -763,8 +878,8 @@ Static; there is **no** rotating scan ring (an earlier dotted scan ring was remo
 centre dot radius 2. Ring stroke radius is **22** for the fixed centre reticle and **12**
 for a selected object.
 
-> Spec/implementation drift: `modules/display.py:774` calls `radius=22`, but the function
-> signature default at `modules/display.py:639` is `radius=26`. Any other caller silently
+> Spec/implementation drift: `modules/display.py:829` calls `radius=22`, but the function
+> signature default at `modules/display.py:694` is `radius=26`. Any other caller silently
 > gets the wrong radius.
 
 ### 4. Tracking overlay — `draw_target_tracking`
@@ -832,14 +947,193 @@ State text is `tracker_state.upper()` ∈ IDLE / SELECTED / TRACKING / LOST. Tar
 | sitl | `#50320a` → `(10,50,80)` | CYAN `#ffcd46` → `(70,205,255)` |
 | flight | `#18370e` → `(14,55,24)` | GREEN `#82e62d` → `(45,230,130)` |
 
-**5.2 Takeoff button** — top-right, `150×30`, `bx = w - 158`, `by = 23`, radius 15.
-Armed: fill `(12,52,30)` / `#1e340c`, border `(60,200,120)` / `#78c83c`, dot GREEN, text
-`"ARMED"`. Disarmed: fill `(10,40,68)` / `#44280a`, border `(70,180,255)` / `#ffb446`, dot
-CYAN, text `"TAKEOFF 5m"`. Dot at `(bx+16, by+15)` radius 3; text font 0.42/1 in
-`(235,238,245)`.
+**5.2 Arm button** — top-right, `110×30`, `bx = w - 398`, `by = 23`, radius 15. Disarmed
+(clickable): fill `(14,34,56)` / `#38220e`, border `(70,180,255)` / `#ffb446`, dot CYAN, text
+`"ARM"`. Armed (not clickable): fill `(12,52,30)` / `#1e340c`, border `(60,200,120)` / `#78c83c`,
+dot GREEN, text `"ARMED"` and `HUD_TEXT_DIM` label. Dot at `(bx+16, by+15)` radius 3; text font
+0.42/1 in `(235,238,245)`.
 
-**5.3 Footer chips** — `y = h - 60 + (60-24)//2 = h - 42`, chip height 24, gap 8, centred:
-`ESC`/deselect, `SPACE`/follow, `R`/reset, `H`/hud, `Q`/quit. Chip background
+**5.3 Takeoff button** — top-right, `150×30`, `bx = w - 278`, `by = 23`, radius 15. Armed
+(clickable): fill `(12,46,32)` / `#202e0c`, border `(60,200,120)` / `#78c83c`, dot GREEN. Text
+is always `"TAKEOFF 5m"`. Disarmed: fill `(26,28,34)` / `#221c1a`, border `(70,78,92)` / `#5c4e46`,
+dot and label `HUD_TEXT_DIM` — i.e. the control is visibly disabled. Dot at `(bx+16, by+15)`
+radius 3; text font 0.42/1 in `(235,238,245)`.
+
+**5.4 Land button** — top-right, rightmost, `110×30`, `bx = w - 118`, `by = 23`, radius 15.
+Armed (clickable): fill `(16,40,66)` / `#422810`, border `(70,160,250)` / `#faa046`, dot CYAN,
+label `"LAND"` in `(235,238,245)`. Disarmed: fill `(26,28,34)` / `#221c1a`, border `(70,78,92)` /
+`#5c4e46`, dot and label `HUD_TEXT_DIM` — landing a disarmed vehicle would only be a mode change,
+so the control is disabled until the vehicle is armed.
+
+The three controls are laid out right-to-left with `_BUTTON_GAP = 10` and an 8 px window margin,
+so they occupy `x = w-398 … w-8` and never reach the centred mode pill (which ends at
+`x ≈ 480`):
+
+| Button | Rect (`by = 23`, height 30) |
+| --- | --- |
+| ARM | `(562, 23, 672, 53)` |
+| TAKEOFF 5m | `(682, 23, 832, 53)` |
+| LAND | `(842, 23, 952, 53)` |
+
+Clicking a button calls `_handle_arm_button` / `_handle_takeoff_button` / `_handle_land_button`;
+the hit tests use `get_arm_button_rect()` / `get_takeoff_button_rect()` / `get_land_button_rect()`.
+**Takeoff is refused unless `drone.is_armed()`** — the message is
+`"Takeoff refused: vehicle is not armed — press ARM first"`. Arming itself checks GPS fix ≥ 3 and
+EKF convergence, and the three actions call `control.arm()`, `control.takeoff(MAX_ALT)` and
+`control.land()` (the old combined `control.arm_and_takeoff` is kept for the mock/backend API).
+
+**The vehicle calls run off the render thread.** Arming, the takeoff climb and disarming all block
+while the FCU confirms — `sitl.takeoff()` alone polls the climb for up to 30 s. Called inline from
+the mouse callback (which runs inside `main_loop`) that froze the camera window and stalled the
+detection stream for the whole climb, which looked like the video had paused. Each handler now does
+its fast refusal checks inline and hands the blocking part to `_run_flight_command`, which runs it
+on a `flight-cmd` worker thread and reports the result through the HUD:
+
+| Phase | Thread | What the operator sees |
+| --- | --- | --- |
+| refusal checks (armed, GPS, EKF, altitude) | main | immediate red/amber HUD message, nothing sent |
+| `control.arm()` / `takeoff()` / `land()` / `disarm()` | `flight-cmd` worker | cyan `Taking off to 5m...` while it runs, then green success or red failure |
+| FCU confirmation | MAVLink listener thread | unchanged — it always ran separately |
+
+`_run_flight_command` also holds `_command_in_flight`, so a second click while a command is running
+is refused with `Another command is still running` instead of sending a duplicate MAVLink command.
+
+`modules/drone_backend/sitl.py` no longer uses pymavlink's `motors_armed_wait()` /
+`motors_disarmed_wait()`. Both are `while True: wait_heartbeat()` loops **with no timeout**, so a
+vehicle that never arms (failed pre-arm check, no RC) would hang the caller forever. They are
+replaced by `_wait_for_arm_state(expected, timeout=20.0)`, which polls the cached heartbeat and
+fails with the vehicle's own status text — e.g. `Vehicle did not report armed within 20s (status:
+Pre-arm: EKF not ready) - check the pre-arm checks`.
+
+### Takeoff altitude is an absolute MSL altitude
+
+`MAV_CMD_NAV_TAKEOFF` **param7 is absolute altitude above sea level**, not a height above the
+launch point. `sitl.takeoff(max_height)` therefore converts:
+
+```python
+current_amsl = _cached_alt          # GLOBAL_POSITION_INT.alt, metres AMSL
+target_amsl  = current_amsl + max_height
+```
+
+Sending the raw relative height (the old behaviour) asks a vehicle sitting at, say, 412 m MSL to
+climb to **5 m MSL** — i.e. to fly into the ground. ArduPilot accepts the command, the vehicle
+starts descending, a failsafe fires and the FCU reports `Disarming motors`, which surfaced as the
+misleading `Vehicle disarmed during takeoff`. It appeared to work in the original SITL session only because that SITL's home sat near 0 m MSL, so
+the two frames coincided. The current SITL instance's home is **584.1 m AMSL**, where the old code
+would have commanded a descent into the ground, so the frame bug is reproduced there. At takeoff the
+vehicle is on the ground, which makes `current_amsl + max_height` equal to "max_height above the
+launch point" **and** "max_height above home", so the existing `max_height` semantics are unchanged.
+
+A descent guard now fails fast instead of waiting for the FCU to kill the motors:
+
+```text
+Takeoff commanded +5.0 m to 417.0 m AMSL but the vehicle is descending (-1.0 m,
+now 411.0 m AMSL). Check the NAV_TAKEOFF altitude frame and any altitude failsafe.
+(status: Arming checks disabled | Disarming motors)
+```
+
+Every `STATUSTEXT` is kept in a short ring buffer, so failures quote the last few FCU messages
+rather than a single line the autopilot overwrote.
+
+### Takeoff only reports success once the altitude is actually held
+
+`MAV_CMD_NAV_TAKEOFF` is a *climb* command, not a hold. On its own it gives ArduPilot no altitude to
+settle on, and the vehicle can sail straight past the requested height. The follow controller cannot
+supply one either: `send_movement_command_XYA()` sends
+`POSITION_TARGET_TYPEMASK_Z_IGNORE`, and `set_flight_altitude()` only updates local state. So
+`takeoff()` now also streams an explicit hold setpoint
+(`SET_POSITION_TARGET_LOCAL_NED`, `MAV_FRAME_GLOBAL_RELATIVE_ALT`, x/y/roll/pitch/yaw ignored) and
+reports success only after the altitude stays within 1 m of the target for 2 s.
+
+This matters because the old code returned as soon as it saw 95 % of the requested climb, which
+produced the worst possible failure: a confident
+
+```text
+Airborne — holding at 5m
+```
+
+while the vehicle was at 50 m and still climbing. A genuine overshoot — or an autopilot that is not
+holding altitude at all — is now an explicit failure, with a hard ceiling of
+`target + max(3 m, max_height)` above which the climb is treated as runaway:
+
+```text
+Vehicle is climbing away: 1000.0 m above launch (1584.1 m AMSL) and still rising, past the
+594.1 m ceiling. The autopilot is not holding the takeoff altitude. Check the altitude
+controller tuning and whether anything is sending position targets.
+```
+
+If the vehicle stops short of the ceiling but never settles, takeoff times out and says so:
+
+```text
+Takeoff did not settle at 5.0 m after 60s (at 8.1 m, 592.2 m AMSL). (status: Arming motors)
+```
+
+> **On the provided SITL instance, `takeoff()` currently reports that second failure.** The autopilot
+> does arrest the runaway climb once a setpoint is streamed, but it captures the altitude with a
+> ~3 m overshoot that does not converge (a 5 m target settles around 9 m, a 1 m target around 3 m).
+> That is an altitude-controller tuning problem in the SITL vehicle configuration, not a command
+> framing problem — `MAV_CMD_DO_CHANGE_ALTITUDE` and relative-altitude position targets were both
+> measured against it. Tune `FS_BATT/INS_*`-era defaults that apply, chiefly the altitude
+> controller (`ATC_`/`INS_` gain set and `WPNAV_` defaults for the SITL model) before using this SITL
+> instance to validate flight behaviour. The app-side guarantee does not depend on that tuning: it
+> either holds the altitude or says it did not.
+
+### Flight-mode changes are confirmed, not assumed
+
+`_set_mode()` used to send the mode, call `recv_match()` to "wait" for the reply, and then cache the
+requested mode unconditionally. `recv_match()` on the shared connection races
+`_message_listener()`, which already consumes `HEARTBEAT`s — so the wait usually consumed a
+heartbeat the listener needed, and the mode was cached whether or not the autopilot accepted it.
+`_set_mode()` now serialises on `_command_lock` and polls the listener's cached mode, raising if the
+vehicle never arrives:
+
+```text
+Vehicle did not enter GUIDED within 5s (still reporting LOITER). Check that the mode is
+available and enabled.
+```
+
+`arm()` therefore no longer arms a vehicle that never entered GUIDED.
+
+The transport also had to change. `mav.set_mode_send()` was **silently ignored** by the ArduCopter
+build under test: the vehicle kept reporting RTL while the app believed it had switched, and a probe
+that forced the issue found the vehicle falling into ACRO. `_set_mode()` now uses
+`MAV_CMD_DO_SET_MODE` (`MAV_CMD_DO_SET_MODE` is accepted and takes effect; the same change made ARM
+and LAND work on that vehicle), waits for its `COMMAND_ACK`, and then still confirms the mode from
+the listener's cache. A rejected mode switch raises:
+
+```text
+Vehicle rejected the request to enter GUIDED (result 1)
+```
+
+### ARMING_CHECKS
+
+`connect_drone()` reads `ARMING_CHECKS` on a daemon thread and prints a `[SAFETY]` warning when it
+is `0` (all arming checks disabled) or `1`. The Python-side GPS/EKF gates in the UI are **not** a
+substitute for the autopilot's own arming checks — those are the last line of defence on a real
+vehicle. `ARMING_CHECKS=0` means nothing verifies throttle-at-zero, GPS, EKF or compass before the
+motors spin.
+
+`_handle_land_button()` stops person-following, clears the target selection and then calls
+`control.land()` — the app keeps running, so the camera, tracker, SGC link and telemetry stay up
+and the vehicle can be disarmed from the same window. `LAND` has a keyboard equivalent, `L`.
+
+**5.5 Disarming** — no button: the header has no room for a fourth control without colliding with
+the centred mode pill, and disarming is a ground-only action. It is on the `D` key and the
+`disarm` SGC command. `_handle_disarm_action()` refuses unless the vehicle is within
+`DISARM_MAX_ALT` (0.5 m) of the recorded home altitude, because a disarmed drone falls:
+
+| Situation | Result |
+| --- | --- |
+| already disarmed | `"Vehicle is already disarmed"`, nothing sent |
+| altitude above 0.5 m | `"Disarm refused: airborne at 12.0m (limit 0.5m) - land first"`, nothing sent |
+| altitude unreadable | `"Disarm refused: cannot read altitude - land first"`, nothing sent |
+| on the ground, following | follow stopped, then `control.disarm()` |
+| on the ground | `control.disarm()` → `"Vehicle disarmed - motors are off"` |
+| FCU rejects the command | `"Disarm failed: <reason>"` from the `COMMAND_ACK` |
+
+**5.6 Footer chips** — `y = h - 60 + (60-24)//2 = h - 42`, chip height 24, gap 8, centred
+(8 chips ≈ 617 px, so they still fit the 960 px window): `ESC`/deselect, `SPACE`/follow,
+`R`/reset, `H`/hud, `L`/land, `D`/disarm, `P`/panic RTL, `Q`/quit. Chip background
 `(30,36,50)` / `#32241e`, capsule radius `ch/2`. Key box background `(52,62,88)` / `#583e34`,
 capsule radius `(ch-2)/2`, key text `(220,235,255)` / `#ffebdc` font 0.50/1, value text
 `HUD_TEXT_DIM` `(150,158,178)` font 0.40/1.
@@ -899,7 +1193,7 @@ numbers, and no state machine** — only the four-value `tracker_state` enum and
 name-level field mapping. The sections 5.1/6 prompt rules imply the transitions
 `idle → selected → tracking → lost`, but that state machine is not written down anywhere.
 The authoritative sources are `shared/detection_models.py:363-419` (schema),
-`shared/detection_transport.py` (transport) and `autonomous_drone_main.py:421`
+`shared/detection_transport.py` (transport) and `autonomous_drone_main.py:1382`
 (`args.sgc_cmd_port`). This is the largest documentation gap in the project; a client cannot
 be implemented against the overlay spec alone.
 
@@ -1202,7 +1496,7 @@ echo 'KERNEL=="ttyTHS1", MODE="0666"' | sudo tee /etc/udev/rules.d/99-ttyTHS1.ru
 desktop-camera data using the estimator's own equation — it is a placeholder, not a
 calibration, and will be wrong for a different lens. See
 [the circular-fit warning](#circular-fit-warning-the-0133-m-baseline-is-not-valid-accuracy).
-Resolution differences are handled automatically (`autonomous_drone_main.py:740` calls
+Resolution differences are handled automatically (`autonomous_drone_main.py:773` calls
 `scaled_to_frame`), but a different **lens** is not.
 
 **6. Replace the mock LiDAR** (`modules/lidar_backend/mock.py`) if a real LiDAR is fitted.
@@ -1464,8 +1758,8 @@ example `YOLO/yolo11s.pt` is correctly ignored.
 
 The model is a **hard runtime requirement**:
 
-- `autonomous_drone_main.py:72` — the `--model-path` default is `YOLO/yolo11n.pt`
-- `autonomous_drone_main.py:336` — `detector.initialize_detector(args.model_path, …)`
+- `autonomous_drone_main.py:103` — the `--model-path` default is `YOLO/yolo11n.pt`
+- `autonomous_drone_main.py:752` — `detector.initialize_detector(args.model_path, …)`
 - `modules/yolo11_detector/model.py:6-17` — loads a **local** path behind an `os.path.exists`
   guard
 - `modules/yolo11_detector/api.py:57` — API surface
@@ -1479,7 +1773,7 @@ Jetson document says "Copy", which presupposes a source file.
 Failure mode if the weights are untracked: `os.path.exists` returns False →
 `FileNotFoundError` at `model.py:10` → caught by the broad `except Exception` at line 15 →
 `load_model` returns `(None, [])` → `api.py:60-62` returns `False` →
-`autonomous_drone_main.py:336` aborts **before flight setup**. Eight capabilities fail at
+`autonomous_drone_main.py:752` aborts **before flight setup**. Eight capabilities fail at
 once: production behaviour, Jetson deployment, SITL testing, mock testing, calibration,
 distance estimation, person-follow, and SGC communication — plus both Jetson checklists'
 copy steps and their CUDA smoke tests.
@@ -1619,8 +1913,8 @@ papered over. **Verified against the live tree unless marked *(documented)*.**
 14. **The outlier threshold makes no sense** given the actual error scale: worst absolute
     error is 0.259 m and worst MRE is 22.5%. A `> 1 m` arm would never fire; a `> 1%` arm
     always does.
-15. **Reticle radius default mismatch.** The spec mandates 22 and `display.py:774` calls
-    `radius=22`, but the function signature default at `display.py:639` is `radius=26`. Any
+15. **Reticle radius default mismatch.** The spec mandates 22 and `display.py:829` calls
+    `radius=22`, but the function signature default at `display.py:694` is `radius=26`. Any
     other caller silently gets the wrong radius.
 16. **BGR/hex pairs** throughout the overlay spec are the BGR triple read as RGB
     (`(255,178,40)` → `#28b2ff`). This is correct by construction and must be stated once or

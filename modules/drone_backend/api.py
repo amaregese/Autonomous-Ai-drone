@@ -37,11 +37,23 @@ def stop_sitl():
         backend.stop_sitl()
 
 
-def arm_and_takeoff(max_height):
+def arm():
     backend = _get_backend()
-    if backend is not None:
-        return backend.arm_and_takeoff(max_height)
-    print(f"Mock: Arm and takeoff to {max_height}m")
+    if backend is not None and hasattr(backend, 'arm'):
+        return backend.arm()
+    print("Mock: Armed")
+
+
+def takeoff(max_height):
+    backend = _get_backend()
+    if backend is not None and hasattr(backend, 'takeoff'):
+        return backend.takeoff(max_height)
+    print(f"Mock: Takeoff to {max_height}m")
+
+
+def arm_and_takeoff(max_height):
+    arm()
+    takeoff(max_height)
 
 
 def land():
@@ -52,6 +64,13 @@ def land():
         _vehicle.land()
     else:
         print("Mock: Landing")
+
+
+def disarm():
+    backend = _get_backend()
+    if backend is not None and hasattr(backend, 'disarm'):
+        return backend.disarm()
+    print("Mock: Disarmed")
 
 
 def is_armed():
@@ -79,6 +98,20 @@ def get_gps_fix_type():
     if _vehicle is not None:
         return _vehicle.get_gps_fix_type()
     return 0
+
+
+def wait_for_navigation_telemetry(timeout=8.0):
+    """Wait for the first GPS/EKF reports; False if none arrive in time.
+
+    A cold telemetry cache is indistinguishable from a broken one, so callers
+    that gate on GPS/EKF quality must wait for real data first.
+    """
+    backend = _get_backend()
+    if backend is not None and hasattr(backend, "wait_for_navigation_telemetry"):
+        return backend.wait_for_navigation_telemetry(timeout=timeout)
+    if _vehicle is not None and hasattr(_vehicle, "wait_for_navigation_telemetry"):
+        return _vehicle.wait_for_navigation_telemetry(timeout=timeout)
+    return True
 
 
 def is_ekf_ok():

@@ -337,7 +337,9 @@ def compose_window(native, tracker_state, target_class, tracking_conf, fps,
     if hud.hud_visible:
         draw_status_bar(canvas, tracker_state, target_class, tracking_conf)
         draw_shortcut_bar(canvas)
+    draw_arm_button(canvas, armed)
     draw_takeoff_button(canvas, armed)
+    draw_land_button(canvas, armed)
     return canvas
 
 
@@ -485,43 +487,94 @@ def draw_hud_notification(img, oy=0):
 
 
 # ---------------------------------------------------------------------------
-# Takeoff button
+# Arm / takeoff buttons
 # ---------------------------------------------------------------------------
 _lost_dismiss_rect = None
 _takeoff_button_rect = None
+_arm_button_rect = None
+_land_button_rect = None
 _TAKEOFF_BUTTON_W = 150
 _TAKEOFF_BUTTON_H = 30
+_ARM_BUTTON_W = 110
+_LAND_BUTTON_W = 110
+_BUTTON_GAP = 10
+_BUTTON_MARGIN = 8
+
+
+def _pill_button(img, bx, by, bw, bh, text, fill, border, dot_c, enabled=True):
+    _rounded_rect_bordered(img, (bx, by), (bx + bw, by + bh),
+                           15, fill, border, 1 if enabled else 1)
+    cv2.circle(img, (bx + 16, by + bh // 2), 3, dot_c, -1, cv2.LINE_AA)
+    if enabled:
+        cv2.circle(img, (bx + 16, by + bh // 2), 3, HUD_TEXT, 1, cv2.LINE_AA)
+
+    tw, th = _text_size(text, 0.42, 1)
+    step = 26
+    color = HUD_TEXT if enabled else HUD_TEXT_DIM
+    cx = bx + step + ((bw - 2 * step) - tw) // 2
+    cy = by + (bh + th) // 2
+    _put_text(img, text, (cx, cy), 0.42, color, 1)
+    return img
+
+
+def draw_arm_button(img, armed: bool = False):
+    global _arm_button_rect
+    h, w = img.shape[:2]
+    bx = w - _BUTTON_MARGIN - _LAND_BUTTON_W - _BUTTON_GAP - _TAKEOFF_BUTTON_W - _BUTTON_GAP - _ARM_BUTTON_W
+    by = (HEADER_FINAL - 38) // 2
+    _arm_button_rect = (bx, by, bx + _ARM_BUTTON_W, by + _TAKEOFF_BUTTON_H)
+
+    if armed:
+        fill, border, dot_c, text = (12, 52, 30), (60, 200, 120), GREEN, "ARMED"
+    else:
+        fill, border, dot_c, text = (14, 34, 56), (70, 180, 255), CYAN, "ARM"
+
+    return _pill_button(img, bx, by, _ARM_BUTTON_W, _TAKEOFF_BUTTON_H,
+                        text, fill, border, dot_c, enabled=not armed)
 
 
 def draw_takeoff_button(img, armed: bool = False):
     global _takeoff_button_rect
     h, w = img.shape[:2]
-    bx = w - _TAKEOFF_BUTTON_W - 8
+    bx = w - _BUTTON_MARGIN - _LAND_BUTTON_W - _BUTTON_GAP - _TAKEOFF_BUTTON_W
     by = (HEADER_FINAL - 38) // 2
     _takeoff_button_rect = (bx, by, bx + _TAKEOFF_BUTTON_W, by + _TAKEOFF_BUTTON_H)
 
     if armed:
-        fill, border, dot_c = (12, 52, 30), (60, 200, 120), GREEN
-        text = "ARMED"
+        fill, border, dot_c = (12, 46, 32), (60, 200, 120), GREEN
     else:
-        fill, border, dot_c = (10, 40, 68), (70, 180, 255), CYAN
-        text = "TAKEOFF 5m"
+        fill, border, dot_c = (26, 28, 34), (70, 78, 92), HUD_TEXT_DIM
 
-    _rounded_rect_bordered(img, (bx, by), (bx + _TAKEOFF_BUTTON_W, by + _TAKEOFF_BUTTON_H),
-                           15, fill, border, 1)
-    cv2.circle(img, (bx + 16, by + _TAKEOFF_BUTTON_H // 2), 3, dot_c, -1, cv2.LINE_AA)
-    cv2.circle(img, (bx + 16, by + _TAKEOFF_BUTTON_H // 2), 3, HUD_TEXT, 1, cv2.LINE_AA)
+    return _pill_button(img, bx, by, _TAKEOFF_BUTTON_W, _TAKEOFF_BUTTON_H,
+                        "TAKEOFF 5m", fill, border, dot_c, enabled=armed)
 
-    tw, th = _text_size(text, 0.42, 1)
-    step = 26
-    cx = bx + step + ((_TAKEOFF_BUTTON_W - 2 * step) - tw) // 2
-    cy = by + (_TAKEOFF_BUTTON_H + th) // 2
-    _put_text(img, text, (cx, cy), 0.42, HUD_TEXT, 1)
-    return img
+
+def draw_land_button(img, armed: bool = False):
+    global _land_button_rect
+    h, w = img.shape[:2]
+    bx = w - _BUTTON_MARGIN - _LAND_BUTTON_W
+    by = (HEADER_FINAL - 38) // 2
+    _land_button_rect = (bx, by, bx + _LAND_BUTTON_W, by + _TAKEOFF_BUTTON_H)
+
+    if armed:
+        fill, border, dot_c = (16, 40, 66), (70, 160, 250), CYAN
+    else:
+        fill, border, dot_c = (26, 28, 34), (70, 78, 92), HUD_TEXT_DIM
+
+    return _pill_button(img, bx, by, _LAND_BUTTON_W, _TAKEOFF_BUTTON_H,
+                        "LAND", fill, border, dot_c, enabled=armed)
 
 
 def get_takeoff_button_rect():
     return _takeoff_button_rect
+
+
+def get_arm_button_rect():
+    return _arm_button_rect
+
+
+def get_land_button_rect():
+    return _land_button_rect
 
 
 # ---------------------------------------------------------------------------
@@ -588,6 +641,8 @@ def draw_shortcut_bar(img):
         ("SPACE", "follow"),
         ("R", "reset"),
         ("H", "hud"),
+        ("L", "land"),
+        ("D", "disarm"),
         ("P", "panic RTL"),
         ("Q", "quit"),
     ]

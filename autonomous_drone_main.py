@@ -6,6 +6,7 @@ import ipaddress
 import math
 import os
 import socket
+import threading
 
 os.environ.setdefault("OPENCV_LOG_LEVEL", "FATAL")
 
@@ -20,6 +21,7 @@ from modules import lidar, control, detector_yolo11 as detector
 from modules import drone
 from modules.run_config import config_source, get_run_defaults, save_default
 from modules.app_config import (
+    DISARM_MAX_ALT,
     MAX_ALT,
     TRACKING_LOST_THRESHOLD,
     MIN_FOLLOW_ALT,
@@ -38,6 +40,8 @@ from modules.display import (
     draw_lost_banner,
     compose_window,
     display_to_frame,
+    get_arm_button_rect,
+    get_land_button_rect,
     get_lost_dismiss_rect,
     get_takeoff_button_rect,
     set_hud_status,
@@ -85,7 +89,15 @@ def _add_flag(parser, enabled_flag, disabled_flag, key, fallback, help_text):
 parser.add_argument('--debug_path', type=str, default=_default("debug_path", "debug/run1"))
 parser.add_argument('--mode', type=str, default=_default('mode', 'sitl'), choices=['sitl', 'flight'], help='Run mode: sitl (SITL) or flight (real drone)')
 parser.add_argument('--control', type=str, default=_default('control', 'PID'))
-parser.add_argument('--drone_connection', type=str, default=_default('drone_connection', None))
+parser.add_argument('--drone-link', type=str, default=_default('drone_link', 'auto'),
+                    choices=['auto', 'sitl', 'sitl-launch', 'real'],
+                    help='Flight controller link: auto (ask, or derive from --mode), '
+                         'sitl (running ArduPilot SITL), sitl-launch (auto-start ArduPilot '
+                         'SITL in WSL), real (serial/COM FCU)')
+parser.add_argument('--drone_connection', type=str, default=_default('drone_connection', None),
+                    help='Explicit MAVLink endpoint; overrides --drone-link auto')
+parser.add_argument('--sitl-connection', type=str, default=_default('sitl_connection', None),
+                    help='MAVLink endpoint for SITL (default: udpin:0.0.0.0:14550)')
 parser.add_argument('--baud', type=int, default=_default('baud', 57600), help='Serial baud rate for a real FCU (default: 57600)')
 _add_flag(parser, '--no-prompt', '--prompt', 'no_prompt', False,
           'Skip the connection prompt (headless): use --mode defaults')
@@ -159,6 +171,7 @@ _following = False
 _home_alt = 0.0
 _sgc_peer_warned = False
 _panic_rtl_active = False
+_sitl_started = False
 
 
 def _reset_lost_state():
@@ -217,15 +230,16 @@ def _preflight_follow():
     return problems
 
 
-def _handle_takeoff_button():
-    try:
-        if drone.is_armed():
-            msg = "Vehicle is already armed — land first or reset SITL"
-            print(msg)
-            set_hud_status(msg, (255, 255, 0), 3.0)
-            return
-    except Exception:
-        pass
+def _airframe_readiness_problems():
+    """Checks the FCU itself makes before arming or taking off."""
+    # These checks read the telemetry listener's cache, which is still cold for
+    # the first second or so after connect. A cold cache reads as "GPS fix 0/3;
+    # EKF not converged" and used to refuse an ARM on a vehicle that was
+    # reporting fix 6 and a converged EKF one click later. Wait for the first
+    # GPS/EKF reports before judging them, so an empty cache is never mistaken
+    # for a broken airframe.
+    if not drone.wait_for_navigation_telemetry(timeout=8.0):
+        return ["no GPS/EKF telemetry from the FCU yet"]
 
     problems = []
     try:
@@ -238,34 +252,175 @@ def _handle_takeoff_button():
             problems.append("EKF not converged")
     except Exception:
         problems.append("cannot read EKF status")
+    return problems
+
+
+_command_in_flight = False
+_command_lock = threading.Lock()
+
+
+def _run_flight_command(action, started_msg, success_msg, failure_prefix):
+    """Run a blocking vehicle command off the render thread.
+
+    Arming, the takeoff climb poll and disarming all block for seconds while
+    the FCU confirms the command. Running them inline froze the camera window
+    and stalled the detection stream for the whole climb, so they now run on a
+    worker thread and report the result through the HUD. The quick pre-flight
+    checks stay on the main thread so refusals are still instant.
+
+    Returns True if the command was started, False if one is already running.
+    """
+    global _command_in_flight
+
+    with _command_lock:
+        if _command_in_flight:
+            msg = "Another command is still running - wait for it to finish"
+            print(msg)
+            set_hud_status(msg, (255, 255, 0), 3.0)
+            return False
+        _command_in_flight = True
+
+    print(started_msg)
+    set_hud_status(started_msg, (0, 255, 255), 3.0)
+
+    def worker():
+        global _command_in_flight
+        try:
+            action()
+            print(success_msg)
+            set_hud_status(success_msg, (0, 200, 0), 3.0)
+        except Exception as exc:
+            msg = f"{failure_prefix}{exc}"
+            print(msg)
+            set_hud_status(msg, (0, 0, 255), 4.0)
+        finally:
+            with _command_lock:
+                _command_in_flight = False
+
+    threading.Thread(target=worker, daemon=True, name="flight-cmd").start()
+    return True
+
+
+def _handle_arm_button():
+    try:
+        if drone.is_armed():
+            msg = "Vehicle is already armed"
+            print(msg)
+            set_hud_status(msg, (255, 255, 0), 3.0)
+            return
+    except Exception:
+        pass
+
+    problems = _airframe_readiness_problems()
+    if problems:
+        msg = "Arming refused: " + "; ".join(problems) + "."
+        print(msg)
+        set_hud_status(msg, (0, 0, 255), 4.0)
+        return
+
+    _run_flight_command(control.arm, "Arming vehicle...",
+                        "Vehicle armed — TAKEOFF 5m is now available",
+                        "Arming failed: ")
+
+
+def _handle_takeoff_button():
+    try:
+        armed = drone.is_armed()
+    except Exception:
+        armed = False
+    if not armed:
+        msg = "Takeoff refused: vehicle is not armed — press ARM first"
+        print(msg)
+        set_hud_status(msg, (0, 0, 255), 4.0)
+        return
+
+    problems = _airframe_readiness_problems()
     if problems:
         msg = "Takeoff refused: " + "; ".join(problems) + "."
         print(msg)
         set_hud_status(msg, (0, 0, 255), 4.0)
         return
 
-    msg = f"Arming vehicle and taking off to {MAX_ALT:.0f}m..."
-    print(msg)
-    set_hud_status(msg, (0, 255, 255), 3.0)
+    def climb():
+        control.takeoff(MAX_ALT)
+        control.set_flight_altitude(MAX_ALT)
+
+    _run_flight_command(climb, f"Taking off to {MAX_ALT:.0f}m...",
+                        f"Airborne — holding at {MAX_ALT:.0f}m",
+                        "Takeoff failed: ")
+
+
+def _handle_land_button():
+    """Land the vehicle but keep the app running (SGC link, camera, tracking)."""
+    global _following
+
+    if _following:
+        _following = False
+        _reset_lost_state()
+        follow_controller.reset()
+        print("[LAND] Person-follow stopped")
+    detector.clear_selection()
+
+    _run_flight_command(control.land, "Landing...",
+                        "Landed - disarm with the D key once on the ground",
+                        "Landing failed: ")
+
+
+def _ground_altitude():
+    """Altitude above the recorded home position, or None when unknown."""
     try:
-        control.arm_and_takeoff(MAX_ALT)
-    except Exception as exc:
-        msg = f"Takeoff failed: {exc}"
+        return drone.get_position()[2] - _home_alt
+    except Exception:
+        return None
+
+
+def _handle_disarm_action():
+    """Disarm the vehicle. Refused while airborne - a disarmed drone falls."""
+    global _following
+
+    try:
+        armed = drone.is_armed()
+    except Exception:
+        armed = False
+    if not armed:
+        msg = "Vehicle is already disarmed"
+        print(msg)
+        set_hud_status(msg, (255, 255, 0), 3.0)
+        return
+
+    altitude = _ground_altitude()
+    if altitude is None:
+        msg = "Disarm refused: cannot read altitude - land first"
         print(msg)
         set_hud_status(msg, (0, 0, 255), 4.0)
         return
-    control.set_flight_altitude(MAX_ALT)
-    msg = f"Vehicle armed — holding at {MAX_ALT:.0f}m"
+    if altitude > DISARM_MAX_ALT:
+        msg = f"Disarm refused: airborne at {altitude:.1f}m (limit {DISARM_MAX_ALT:.1f}m) - land first"
+        print(msg)
+        set_hud_status(msg, (0, 0, 255), 4.0)
+        return
+
+    if _following:
+        _following = False
+        _reset_lost_state()
+        follow_controller.reset()
+
+    msg = "Disarming vehicle..."
     print(msg)
-    set_hud_status(msg, (0, 200, 0), 3.0)
+    set_hud_status(msg, (0, 255, 255), 3.0)
+    _run_flight_command(control.disarm, "Disarming vehicle...",
+                        "Vehicle disarmed - motors are off",
+                        "Disarm failed: ")
 
 
 def _on_mouse(event, x, y, flags, param):
     if event == cv2.EVENT_LBUTTONDOWN:
-        rect = get_takeoff_button_rect()
-        if rect is not None and rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]:
-            _handle_takeoff_button()
-            return
+        for rect, handler in ((get_arm_button_rect(), _handle_arm_button),
+                              (get_takeoff_button_rect(), _handle_takeoff_button),
+                              (get_land_button_rect(), _handle_land_button)):
+            if rect is not None and rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]:
+                handler()
+                return
     tracking_session.handle_mouse_event(event, x, y, flags, param)
 
 
@@ -317,51 +472,111 @@ def _default_fcu_serial():
     return "/dev/ttyACM0"
 
 
+_SITL_ENDPOINT_DEFAULT = "udpin:0.0.0.0:14550"
+_SITL_PREFIXES = ("udpin", "udpout", "tcpin", "tcpout")
+
+
+def _sitl_endpoint():
+    """MAVLink endpoint for SITL, from --sitl-connection / run_config.json."""
+    value = (args.sitl_connection or "").strip()
+    return value or _SITL_ENDPOINT_DEFAULT
+
+
+def _is_sitl_link(connection_string):
+    return str(connection_string).startswith(_SITL_PREFIXES)
+
+
+def _launch_allowed(start_sitl):
+    """True when this machine can start SITL itself, warning when it cannot."""
+    if not start_sitl or os.name == "nt":
+        return bool(start_sitl)
+    print("SITL auto-launch is only available on Windows/WSL - "
+          "connecting to an already-running SITL instead.")
+    return False
+
+
+def _connection_menu(sitl_endpoint):
+    """Ordered (label, connection_string, start_sitl) choices for the prompt."""
+    entries = [(f"SITL - ArduPilot simulator on {sitl_endpoint}", sitl_endpoint, False)]
+    if os.name == "nt":
+        entries.append(("SITL - launch ArduPilot SITL in WSL, then connect",
+                        sitl_endpoint, True))
+    entries.extend((f"Real FCU serial/COM: {port}", port, False)
+                   for port in _detect_serial_ports())
+    return entries
+
+
+def _default_menu_index(entries):
+    """Preselect the requested link, else follow --mode."""
+    if args.drone_link == "sitl-launch":
+        for index, (_, _, start_sitl) in enumerate(entries, start=1):
+            if start_sitl:
+                return index
+    if args.drone_link == "real" or args.mode == "flight":
+        for index, (label, _, _) in enumerate(entries, start=1):
+            if label.startswith("Real FCU"):
+                return index
+    return 1
+
+
+def _prompt_for_connection(sitl_endpoint):
+    entries = _connection_menu(sitl_endpoint)
+    default_index = _default_menu_index(entries)
+
+    print()
+    print("Flight controller to connect to")
+    for index, (label, _, _) in enumerate(entries, start=1):
+        hint = "   (default)" if index == default_index else ""
+        print(f"  [{index}] {label}{hint}")
+    if not any(label.startswith("Real FCU") for label, _, _ in entries):
+        print("  (no serial/COM ports detected)")
+
+    try:
+        choice = input(f"Choice [{default_index}]: ").strip()
+    except (EOFError, OSError):
+        choice = ""
+    if not choice:
+        return entries[default_index - 1][1:]
+
+    try:
+        index = int(choice)
+    except ValueError:
+        index = 0
+    if 1 <= index <= len(entries):
+        return entries[index - 1][1:]
+    print(f"Invalid choice '{choice}' - using option {default_index}.")
+    return entries[default_index - 1][1:]
+
+
 def _pick_connection():
+    """Resolve (connection_string, start_sitl, baud) for the flight controller.
+
+    `--drone-link` is the explicit choice and wins over everything else. Under
+    `auto` a hard-coded `--drone_connection` still short-circuits the prompt,
+    otherwise the user is asked, or `--mode` decides when `--no-prompt` is set.
+    """
+    sitl_endpoint = _sitl_endpoint()
+
+    if args.drone_link == "real":
+        return args.drone_connection or _default_fcu_serial(), False, args.baud
+
+    if args.drone_link in ("sitl", "sitl-launch"):
+        if args.drone_connection:
+            print(f"[LINK] --drone-connection overrides the SITL endpoint: "
+                  f"{args.drone_connection}")
+            return args.drone_connection, False, args.baud
+        start_sitl = _launch_allowed(args.drone_link == "sitl-launch")
+        return sitl_endpoint, start_sitl, args.baud
+
     if args.drone_connection is not None:
         return args.drone_connection, args.start_sitl, args.baud
 
-    sitl_string = "udpin:0.0.0.0:14550"
     if args.no_prompt:
         if args.mode == "flight":
-            return _default_fcu_serial(), args.start_sitl, args.baud
-        return sitl_string, args.start_sitl, args.baud
+            return _default_fcu_serial(), False, args.baud
+        return sitl_endpoint, _launch_allowed(args.start_sitl), args.baud
 
-    ports = _detect_serial_ports()
-    print()
-    print("Select drone connection:")
-    print("  [1] SITL (connect to UDP 127.0.0.1:14550)")
-    if os.name == "nt":
-        print("  [2] SITL (auto-launch WSL ArduPilot)")
-        menu_offset = 3
-    else:
-        menu_offset = 2
-    for idx, port in enumerate(ports, start=menu_offset):
-        print(f"  [{idx}] Real FCU serial/COM: {port}")
-    if not ports:
-        print("  (no serial/COM ports detected)")
-    try:
-        choice = input("Choice [1]: ").strip() or "1"
-    except (EOFError, OSError):
-        if args.mode == "flight":
-            return _default_fcu_serial(), args.start_sitl, args.baud
-        return sitl_string, args.start_sitl, args.baud
-
-    if choice == "1":
-        return sitl_string, False, args.baud
-    if choice == "2" and os.name == "nt":
-        return sitl_string, True, args.baud
-    if choice == "2" and os.name != "nt":
-        print("SITL auto-launch not available on this platform. Connect to existing SITL or real FCU.")
-        return sitl_string, False, args.baud
-    try:
-        idx = int(choice)
-        if menu_offset <= idx <= menu_offset - 1 + len(ports):
-            return ports[idx - menu_offset], False, args.baud
-    except ValueError:
-        pass
-    print(f"Invalid choice '{choice}', defaulting to SITL.")
-    return sitl_string, False, args.baud
+    return (*_prompt_for_connection(sitl_endpoint), args.baud)
 
 
 def _local_ipv4_addresses():
@@ -493,17 +708,19 @@ def _resolve_sgc_host() -> str:
     return chosen
 
 
-def _describe_link(connection_string, baud):
-    if connection_string.startswith("udpin"):
+def _describe_link(connection_string, baud, start_sitl=False):
+    if _is_sitl_link(connection_string):
+        if start_sitl:
+            return f"SITL launched in WSL ({connection_string})"
         return f"SITL over UDP ({connection_string})"
     return f"real FCU on {connection_string} @ {baud} baud"
 
 
-def _print_startup_summary(sgc_host, connection_string, baud):
+def _print_startup_summary(sgc_host, connection_string, baud, start_sitl=False):
     print()
     print("Starting with")
     print(f"  mode          : {args.mode}")
-    print(f"  drone link    : {_describe_link(connection_string, baud)}")
+    print(f"  drone link    : {_describe_link(connection_string, baud, start_sitl)}")
     print(f"  SGC target    : {sgc_host}:{args.sgc_port}   "
           f"(commands come in on UDP {args.sgc_cmd_port})")
     print(f"  video stream  : port {args.rtsp_port}, detection size {args.imgsz}px")
@@ -514,12 +731,20 @@ def _print_startup_summary(sgc_host, connection_string, baud):
 
 def setup():
     global streamer, _home_alt, _fx, _fy, _cx, _cy, _calib_w, _calib_h, sgc_host
+    global _sitl_started
 
     # Everything that needs an answer is asked first, so a mistake is caught
-    # before the camera/model/simulator startup cost is paid.
-    sgc_host = _resolve_sgc_host()
+    # before the camera/model/simulator startup cost is paid.  The link comes
+    # first because it can switch the run to `sitl` mode, which then decides
+    # the SGC default below.
     connection_string, start_sitl, baud = _pick_connection()
-    _print_startup_summary(sgc_host, connection_string, baud)
+    _sitl_started = bool(start_sitl)
+    if _is_sitl_link(connection_string) and args.mode != "sitl":
+        print(f"[LINK] SITL endpoint selected - running in sitl mode "
+              f"(was --mode {args.mode})")
+        args.mode = "sitl"
+    sgc_host = _resolve_sgc_host()
+    _print_startup_summary(sgc_host, connection_string, baud, start_sitl)
 
     drone.set_backend(args.mode)
 
@@ -716,26 +941,44 @@ def _handle_sgc_command(cmd, detections):
         _following = False
         _reset_lost_state()
         print("[SGC] Follow stopped")
+    elif cmd.command_type == "arm":
+        print("[SGC] Arm requested")
+        _handle_arm_button()
     elif cmd.command_type == "takeoff":
         print("[SGC] Takeoff requested")
         _handle_takeoff_button()
+    elif cmd.command_type == "land":
+        print("[SGC] Land requested")
+        _handle_land_button()
+    elif cmd.command_type == "disarm":
+        print("[SGC] Disarm requested")
+        _handle_disarm_action()
     elif cmd.command_type == "panic_rtl":
         _trigger_panic_rtl("SGC command")
     elif cmd.command_type == "servo":
         try:
+            channel = int(cmd.channel)
+            if not 1 <= channel <= 16:
+                raise ValueError(f"channel {channel} outside 1-16")
             if cmd.pulse is not None:
                 pulse = int(cmd.pulse)
             elif cmd.angle is not None:
-                pulse = int(1500 + cmd.angle * (500.0 / 45.0))
-                pulse = max(1000, min(2000, pulse))
+                pulse = int(1500 + float(cmd.angle) * (500.0 / 45.0))
             else:
                 pulse = 1500
-            drone.send_servo(channel=cmd.channel, pulse=pulse)
-            print(f"[SGC] Servo: ch{cmd.channel} -> {pulse}us")
-        except ValueError as exc:
+            # Clamp either input: a raw pulse from the SGC must not be able to
+            # drive a real servo past its travel.
+            pulse = max(1000, min(2000, pulse))
+            drone.send_servo(channel=channel, pulse=pulse)
+            print(f"[SGC] Servo: ch{channel} -> {pulse}us")
+        except (TypeError, ValueError) as exc:
             msg = f"Servo refused: {exc}"
             print(f"[SGC] {msg}")
             set_hud_status(msg, (0, 0, 255), 4.0)
+    elif cmd.command_type:
+        msg = f"Unknown SGC command: {cmd.command_type}"
+        print(f"[SGC] {msg}")
+        set_hud_status("Unknown SGC command", (0, 0, 255), 4.0)
 
 
 def _handle_keyboard():
@@ -754,6 +997,14 @@ def _handle_keyboard():
         # Panic RTL - immediate return to launch
         _trigger_panic_rtl("keyboard 'P'")
         return "quit"
+
+    if key == ord('l'):
+        _handle_land_button()
+        time.sleep(0.2)
+
+    if key == ord('d'):
+        _handle_disarm_action()
+        time.sleep(0.2)
 
     if key == 27:  # escape
         detector.clear_selection()
@@ -1024,10 +1275,24 @@ def main_loop():
                 print(f"[CALIB] Calibration complete! fy={_fy:.1f} — distance estimate updated.")
 
         if sgc_receiver is not None:
-            cmd = sgc_receiver.pop_command()
-            if cmd is not None:
+            # Drain the whole queue each frame so a burst (arm then takeoff, or
+            # land then disarm) is never dropped, and run panic_rtl first so a
+            # safety command is never stuck behind cosmetic ones.
+            sgc_commands = sgc_receiver.drain_commands()
+            if sgc_commands:
                 _check_sgc_peer()
-                _handle_sgc_command(cmd, detections)
+                sgc_commands.sort(key=lambda c: 0 if c.command_type == "panic_rtl" else 1)
+                for sgc_cmd in sgc_commands:
+                    try:
+                        _handle_sgc_command(sgc_cmd, detections)
+                    except Exception as exc:
+                        # A malformed packet must never take the flight loop
+                        # down while the vehicle is airborne.
+                        msg = f"Bad SGC command '{sgc_cmd.command_type}': {exc}"
+                        print(f"[SGC] {msg}")
+                        set_hud_status("SGC command rejected", (0, 0, 255), 4.0)
+                    if _panic_rtl_active:
+                        break
                 if _panic_rtl_active:
                     break
 
@@ -1073,19 +1338,29 @@ def main_loop():
             follow_cmd = follow_controller.update(follow_target, image.shape)
             movement = _follow_movement_dict(follow_cmd)
 
-            drone.send_movement_command_YAW(follow_cmd.yaw_cmd)
-            if abs(follow_cmd.vx) > 1e-9 or abs(follow_cmd.vy) > 1e-9:
-                drone.send_movement_command_XYA(follow_cmd.vy, follow_cmd.vx, MAX_ALT)
-            else:
-                drone.send_movement_command_XYA(0, 0, MAX_ALT)
-                drone.hold_position()
             control.update_telemetry_from_track(fps, follow_cmd.yaw_cmd, follow_cmd.vx, False, follow_cmd.x_delta, 0.0)
         else:
             follow_controller.reset()
             movement = None
             control.update_telemetry_from_track(fps, 0, 0, False, 0, 0)
-            drone.send_movement_command_YAW(0)
-            drone.hold_position()
+
+        # Movement/hold targets are only sent when no flight command owns the
+        # vehicle. Both send_movement_command_XYA and hold_position transmit a
+        # body-frame velocity target whose vertical velocity is 0, and in GUIDED
+        # that overrides the NAV_TAKEOFF target: at frame rate it pins the
+        # vehicle at ground level, so a takeoff is acknowledged, never leaves
+        # the ground, and the autopilot disarms it as armed-but-idle.
+        if not _command_in_flight:
+            if _following:
+                drone.send_movement_command_YAW(follow_cmd.yaw_cmd)
+                if abs(follow_cmd.vx) > 1e-9 or abs(follow_cmd.vy) > 1e-9:
+                    drone.send_movement_command_XYA(follow_cmd.vy, follow_cmd.vx, MAX_ALT)
+                else:
+                    drone.send_movement_command_XYA(0, 0, MAX_ALT)
+                    drone.hold_position()
+            else:
+                drone.send_movement_command_YAW(0)
+                drone.hold_position()
 
         if selected_obj is not None and not is_tracking_lost:
             _lost_start_time = None
@@ -1170,7 +1445,7 @@ def land():
         sgc_receiver.stop()
     if streamer is not None:
         streamer.stop()
-    if args.start_sitl:
+    if _sitl_started:
         control.stop_sitl()
     detector.cleanup()
     if not args.headless:

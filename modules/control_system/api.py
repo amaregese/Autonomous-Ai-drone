@@ -42,12 +42,24 @@ def set_flight_altitude(alt):
     state.flight_altitude = alt
 
 
+def arm():
+    drone.arm()
+
+
+def takeoff(max_height):
+    drone.takeoff(max_height)
+
+
 def arm_and_takeoff(max_height):
     drone.arm_and_takeoff(max_height)
 
 
 def land():
     drone.land()
+
+
+def disarm():
+    drone.disarm()
 
 
 def print_drone_report():

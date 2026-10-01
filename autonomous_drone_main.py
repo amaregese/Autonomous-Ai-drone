@@ -19,10 +19,12 @@ sys.path.insert(1, 'modules')
 
 from modules import lidar, control, detector_yolo11 as detector
 from modules import drone
+from modules.follow_diagnostics import selected_diagnostic
 from modules.run_config import config_source, get_run_defaults, save_default
 from modules.app_config import (
     DISARM_MAX_ALT,
     MAX_ALT,
+    TAKEOFF_ALTITUDE,
     TRACKING_LOST_THRESHOLD,
     MIN_FOLLOW_ALT,
     MIN_FOLLOW_BATTERY,
@@ -91,16 +93,16 @@ parser.add_argument('--mode', type=str, default=_default('mode', 'sitl'), choice
 parser.add_argument('--control', type=str, default=_default('control', 'PID'))
 parser.add_argument('--drone-link', type=str, default=_default('drone_link', 'auto'),
                     choices=['auto', 'sitl', 'sitl-launch', 'real'],
-                    help='Flight controller link: auto (ask, or derive from --mode), '
-                         'sitl (running ArduPilot SITL), sitl-launch (auto-start ArduPilot '
-                         'SITL in WSL), real (serial/COM FCU)')
+                    help='Flight controller link: auto (default; auto-detect real FCU), '
+                         'real (serial/COM FCU), sitl (running ArduPilot SITL), '
+                         'sitl-launch (auto-start ArduPilot SITL in WSL)')
 parser.add_argument('--drone_connection', type=str, default=_default('drone_connection', None),
                     help='Explicit MAVLink endpoint; overrides --drone-link auto')
 parser.add_argument('--sitl-connection', type=str, default=_default('sitl_connection', None),
                     help='MAVLink endpoint for SITL (default: udpin:0.0.0.0:14550)')
 parser.add_argument('--baud', type=int, default=_default('baud', 57600), help='Serial baud rate for a real FCU (default: 57600)')
 _add_flag(parser, '--no-prompt', '--prompt', 'no_prompt', False,
-          'Skip the connection prompt (headless): use --mode defaults')
+          'Deprecated: the flight-controller link is auto-detected; accepted for compatibility')
 parser.add_argument('--model-path', type=str, default=_default('model_path', 'YOLO/yolo11n.pt'))
 parser.add_argument('--camera', type=int, default=_default('camera', None), help='Force webcam index (default: auto-detect)')
 parser.add_argument('--conf-threshold', type=float, default=_default('conf_threshold', None))
@@ -109,9 +111,9 @@ parser.add_argument('--min-box-area-ratio', type=float, default=_default('min_bo
 parser.add_argument('--imgsz', type=int, default=_default('imgsz', 320))
 parser.add_argument('--rtsp-port', type=int, default=_default('rtsp_port', 8554), help='RTSP server port')
 parser.add_argument('--jpeg-quality', type=int, default=_default('jpeg_quality', 30), help='JPEG quality for MJPEG stream (1-100, lower=faster)')
-parser.add_argument('--sgc-host', type=str, default=_default('sgc_host', None), help='SGC IP address (default: 127.0.0.1 in SITL, 192.168.1.100 in flight)')
-_add_flag(parser, '--sgc-host-prompt', '--no-sgc-host-prompt', 'sgc_host_prompt', True,
-          'Ask for the SGC IP on startup (skipped when --sgc-host is given)')
+parser.add_argument('--sgc-host', type=str, default=_default('sgc_host', None), help='SGC IP address (default: 192.168.1.160)')
+_add_flag(parser, '--sgc-host-prompt', '--no-sgc-host-prompt', 'sgc_host_prompt', False,
+          'Ask for the SGC IP on startup (default: no; otherwise --sgc-host / 192.168.1.160)')
 parser.add_argument('--sgc-port', type=int, default=_default('sgc_port', 9001), help='SGC detection UDP port')
 parser.add_argument('--sgc-cmd-port', type=int, default=_default('sgc_cmd_port', 9002), help='SGC command UDP listen port')
 _add_flag(parser, '--start-sitl', '--no-start-sitl', 'start_sitl', False,
@@ -319,7 +321,7 @@ def _handle_arm_button():
         return
 
     _run_flight_command(control.arm, "Arming vehicle...",
-                        "Vehicle armed — TAKEOFF 5m is now available",
+                        f"Vehicle armed — TAKEOFF {TAKEOFF_ALTITUDE:.0f}m is now available",
                         "Arming failed: ")
 
 
@@ -342,11 +344,11 @@ def _handle_takeoff_button():
         return
 
     def climb():
-        control.takeoff(MAX_ALT)
-        control.set_flight_altitude(MAX_ALT)
+        control.takeoff(TAKEOFF_ALTITUDE)
+        control.set_flight_altitude(TAKEOFF_ALTITUDE)
 
-    _run_flight_command(climb, f"Taking off to {MAX_ALT:.0f}m...",
-                        f"Airborne — holding at {MAX_ALT:.0f}m",
+    _run_flight_command(climb, f"Taking off to {TAKEOFF_ALTITUDE:.0f}m...",
+                        f"Airborne — holding at {TAKEOFF_ALTITUDE:.0f}m",
                         "Takeoff failed: ")
 
 
@@ -495,65 +497,12 @@ def _launch_allowed(start_sitl):
     return False
 
 
-def _connection_menu(sitl_endpoint):
-    """Ordered (label, connection_string, start_sitl) choices for the prompt."""
-    entries = [(f"SITL - ArduPilot simulator on {sitl_endpoint}", sitl_endpoint, False)]
-    if os.name == "nt":
-        entries.append(("SITL - launch ArduPilot SITL in WSL, then connect",
-                        sitl_endpoint, True))
-    entries.extend((f"Real FCU serial/COM: {port}", port, False)
-                   for port in _detect_serial_ports())
-    return entries
-
-
-def _default_menu_index(entries):
-    """Preselect the requested link, else follow --mode."""
-    if args.drone_link == "sitl-launch":
-        for index, (_, _, start_sitl) in enumerate(entries, start=1):
-            if start_sitl:
-                return index
-    if args.drone_link == "real" or args.mode == "flight":
-        for index, (label, _, _) in enumerate(entries, start=1):
-            if label.startswith("Real FCU"):
-                return index
-    return 1
-
-
-def _prompt_for_connection(sitl_endpoint):
-    entries = _connection_menu(sitl_endpoint)
-    default_index = _default_menu_index(entries)
-
-    print()
-    print("Flight controller to connect to")
-    for index, (label, _, _) in enumerate(entries, start=1):
-        hint = "   (default)" if index == default_index else ""
-        print(f"  [{index}] {label}{hint}")
-    if not any(label.startswith("Real FCU") for label, _, _ in entries):
-        print("  (no serial/COM ports detected)")
-
-    try:
-        choice = input(f"Choice [{default_index}]: ").strip()
-    except (EOFError, OSError):
-        choice = ""
-    if not choice:
-        return entries[default_index - 1][1:]
-
-    try:
-        index = int(choice)
-    except ValueError:
-        index = 0
-    if 1 <= index <= len(entries):
-        return entries[index - 1][1:]
-    print(f"Invalid choice '{choice}' - using option {default_index}.")
-    return entries[default_index - 1][1:]
-
-
 def _pick_connection():
     """Resolve (connection_string, start_sitl, baud) for the flight controller.
 
-    `--drone-link` is the explicit choice and wins over everything else. Under
-    `auto` a hard-coded `--drone_connection` still short-circuits the prompt,
-    otherwise the user is asked, or `--mode` decides when `--no-prompt` is set.
+    The real FCU serial/COM link is the default. SITL is only used when asked
+    for explicitly via `--drone-link sitl`/`sitl-launch`, `--start-sitl`, or an
+    explicit `--drone_connection`.
     """
     sitl_endpoint = _sitl_endpoint()
 
@@ -571,12 +520,12 @@ def _pick_connection():
     if args.drone_connection is not None:
         return args.drone_connection, args.start_sitl, args.baud
 
-    if args.no_prompt:
-        if args.mode == "flight":
-            return _default_fcu_serial(), False, args.baud
-        return sitl_endpoint, _launch_allowed(args.start_sitl), args.baud
+    if args.start_sitl:
+        return sitl_endpoint, _launch_allowed(True), args.baud
 
-    return (*_prompt_for_connection(sitl_endpoint), args.baud)
+    connection = _default_fcu_serial()
+    print(f"[LINK] auto-detected real FCU on {connection}")
+    return connection, False, args.baud
 
 
 def _local_ipv4_addresses():
@@ -660,7 +609,7 @@ def _default_sgc_host() -> str:
     configured = _default('sgc_host', None)
     if configured:
         return str(configured).strip()
-    return '127.0.0.1' if args.mode == 'sitl' else '192.168.1.100'
+    return '192.168.1.160'
 
 
 def _remember_sgc_host(host: str) -> None:
@@ -743,6 +692,10 @@ def setup():
         print(f"[LINK] SITL endpoint selected - running in sitl mode "
               f"(was --mode {args.mode})")
         args.mode = "sitl"
+    elif not _is_sitl_link(connection_string) and args.mode != "flight":
+        print(f"[LINK] Real FCU link selected - running in flight mode "
+              f"(was --mode {args.mode})")
+        args.mode = "flight"
     sgc_host = _resolve_sgc_host()
     _print_startup_summary(sgc_host, connection_string, baud, start_sitl)
 
@@ -1148,10 +1101,12 @@ def _console_status(mode: str, movement: dict | None, selected_obj, tracker_stat
 
         distance_text = "N/A" if dist is None else f"{dist:.2f}m"
         parts.append(f"{selected_obj.class_name} \033[1m{distance_text}\033[0m")
+        parts.append(selected_diagnostic(selected_obj, dist))
         parts.append(f"YAW {yaw:+.1f}\u00b0")
         parts.append(status)
     elif selected_obj is not None:
         parts.append(f"{selected_obj.class_name} \033[1m--\033[0m")
+        parts.append(selected_diagnostic(selected_obj, _selected_distance(selected_obj, movement)))
         parts.append("YAW --")
         parts.append("\033[1;35mSELECTED\033[0m (SPACE to follow)")
     elif following and tracker_state == "lost":
@@ -1297,7 +1252,12 @@ def main_loop():
                     break
 
         _refresh_follow_estimator(width, height)
-        annotate_detections(_distance_estimator._vision if _distance_estimator else None, detections, width, height)
+        annotate_detections(
+            _distance_estimator._vision if _distance_estimator else None,
+            detections, width, height,
+            altitude_m=_ground_altitude(),
+            horizontal_classes={modules.app_config.FOLLOW_TARGET_CLASS},
+        )
         tracking_session.set_frame_size(width, height, DISPLAY_WIDTH, DISPLAY_HEIGHT)
 
 

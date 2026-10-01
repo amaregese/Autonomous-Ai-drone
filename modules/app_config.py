@@ -32,6 +32,24 @@ FOLLOW_LATERAL_GAIN = 1.2
 FOLLOW_TARGET_CLASS = "person"
 FOLLOW_MAX_DETECTION_AGE_S = 0.5
 
+# Horizontal ground-distance setpoint (metres) and deadband.
+# H < FOLLOW_DISTANCE - DISTANCE_TOLERANCE -> TOO_CLOSE (move backward at
+# FOLLOW_REVERSE_SPEED), H > FOLLOW_DISTANCE + DISTANCE_TOLERANCE -> TOO_FAR
+# (forward), otherwise HOLD (zero forward speed).
+FOLLOW_DISTANCE = 4.0
+DISTANCE_TOLERANCE = 0.5
+# Fixed reverse (backward) cruise speed used for TOO_CLOSE. Deliberately not
+# proportional to how close the target is.
+FOLLOW_REVERSE_SPEED = 0.3
+
+# --- Vehicle altitude setpoints (metres above home) ------------------------------
+# TAKEOFF_ALTITUDE: altitude the vehicle should climb to during takeoff.
+TAKEOFF_ALTITUDE = 3.0
+# FOLLOW_ALTITUDE: desired vehicle altitude while following the target.
+FOLLOW_ALTITUDE = 3.0
+# ALTITUDE_TOLERANCE: acceptable deviation around the desired follow altitude.
+ALTITUDE_TOLERANCE = 0.5
+
 MIN_FOLLOW_ALT = 5.0
 MIN_FOLLOW_BATTERY = 20
 MIN_FOLLOW_GPS_FIX = 3

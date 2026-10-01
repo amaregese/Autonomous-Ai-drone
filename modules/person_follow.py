@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Optional, Sequence, Tuple
 
 from modules import app_config
@@ -51,6 +52,9 @@ class FollowConfig:
     max_yaw: float = app_config.MAX_YAW
     target_class: str = app_config.FOLLOW_TARGET_CLASS
     max_detection_age: float = app_config.FOLLOW_MAX_DETECTION_AGE_S
+    follow_distance: float = app_config.FOLLOW_DISTANCE
+    distance_tolerance: float = app_config.DISTANCE_TOLERANCE
+    reverse_speed: float = app_config.FOLLOW_REVERSE_SPEED
 
     @classmethod
     def from_app_config(cls) -> "FollowConfig":
@@ -71,6 +75,9 @@ class FollowConfig:
             max_yaw=app_config.MAX_YAW,
             target_class=app_config.FOLLOW_TARGET_CLASS,
             max_detection_age=app_config.FOLLOW_MAX_DETECTION_AGE_S,
+            follow_distance=app_config.FOLLOW_DISTANCE,
+            distance_tolerance=app_config.DISTANCE_TOLERANCE,
+            reverse_speed=app_config.FOLLOW_REVERSE_SPEED,
         )
 
 
@@ -94,6 +101,47 @@ class FollowCommand:
     detection_id: Optional[int] = None
 
 
+class DistanceState(Enum):
+    """Horizontal follow-distance state relative to the setpoint deadband.
+
+    Drives forward movement: TOO_FAR -> forward profile, TOO_CLOSE -> fixed
+    backward speed, HOLD/INVALID -> zero forward speed. ``INVALID`` means no
+    trustworthy horizontal measurement exists.
+    """
+
+    TOO_CLOSE = "too_close"
+    HOLD = "hold"
+    TOO_FAR = "too_far"
+    INVALID = "invalid"
+
+
+def classify_horizontal_distance(
+    horizontal_distance_m,
+    follow_distance: float = app_config.FOLLOW_DISTANCE,
+    tolerance: float = app_config.DISTANCE_TOLERANCE,
+) -> DistanceState:
+    """Classify a horizontal ground distance against the setpoint deadband.
+
+    ``H < follow_distance - tolerance`` -> TOO_CLOSE
+    ``H > follow_distance + tolerance`` -> TOO_FAR
+    otherwise -> HOLD
+    A missing, non-finite or non-positive ``H`` -> INVALID (never fabricated).
+    """
+    if horizontal_distance_m is None:
+        return DistanceState.INVALID
+    try:
+        distance = float(horizontal_distance_m)
+    except (TypeError, ValueError):
+        return DistanceState.INVALID
+    if not math.isfinite(distance) or distance <= 0.0:
+        return DistanceState.INVALID
+    if distance < follow_distance - tolerance:
+        return DistanceState.TOO_CLOSE
+    if distance > follow_distance + tolerance:
+        return DistanceState.TOO_FAR
+    return DistanceState.HOLD
+
+
 class PersonFollowController:
     """Computes smooth forward/lateral velocity commands for the tracked target.
 
@@ -115,6 +163,7 @@ class PersonFollowController:
         self._lost_since_t = None
         self._distance_source = ""
         self._distance_confidence = 0.0
+        self.distance_state = DistanceState.INVALID
 
     # ------------------------------------------------------------ wiring ----
 
@@ -134,6 +183,7 @@ class PersonFollowController:
         self.range_m = None
         self._distance_source = ""
         self._distance_confidence = 0.0
+        self.distance_state = DistanceState.INVALID
 
     @property
     def lost_time_s(self) -> float:
@@ -148,6 +198,7 @@ class PersonFollowController:
         now = now if now is not None else time.time()
 
         if not self.config.enabled:
+            self.distance_state = DistanceState.INVALID
             return FollowCommand(active=False, lane="disabled", reason="follow disabled")
 
         usable, reason = self._usable(detection, now)
@@ -155,8 +206,17 @@ class PersonFollowController:
             return self._on_invalid(now, reason)
 
         self._mark_target_present()
+        # Horizontal ground-distance state drives vx: TOO_FAR uses the existing
+        # forward profile on H, TOO_CLOSE moves backward at the fixed reverse
+        # speed, and HOLD/INVALID command zero. The existing _ramp() approaches
+        # the signed target, so acceleration limiting still applies.
+        self.distance_state = self.horizontal_distance_state(detection)
         range_m = self.measure_range(detection, frame_shape)
-        if range_m is None or not math.isfinite(range_m) or range_m <= 0.0:
+        have_range = range_m is not None and math.isfinite(range_m) and range_m > 0.0
+        if not have_range and self.distance_state is DistanceState.INVALID:
+            # No usable axis range AND no valid horizontal measurement: nothing
+            # to follow. A valid H deliberately bypasses this so the horizontal
+            # forward controller can run without the legacy axis range.
             self.range_m = None
             return FollowCommand(
                 active=True,
@@ -172,11 +232,11 @@ class PersonFollowController:
                 detection_id=getattr(detection, "detection_id", id(detection)),
             )
 
-        self.range_m = float(range_m)
+        self.range_m = float(range_m) if have_range else None
         dt = self._resolve_dt(now)
         self._last_update_t = now
 
-        vx_target = self._target_forward_speed(range_m)
+        vx_target = self.forward_speed_target(detection, self.distance_state)
         vy_target = self._target_lateral_speed(detection, frame_shape)
 
         vx = self._ramp(self._last_vx, vx_target, dt)
@@ -196,9 +256,9 @@ class PersonFollowController:
             x_delta=x_delta,
             lane=lane,
             reason="tracking",
-            distance_source=self._distance_source,
-            distance_confidence=self._distance_confidence,
-            distance_valid=True,
+            distance_source=self._distance_source if have_range else "none",
+            distance_confidence=self._distance_confidence if have_range else 0.0,
+            distance_valid=have_range,
             detection_id=getattr(detection, "detection_id", id(detection)),
         )
 
@@ -220,6 +280,7 @@ class PersonFollowController:
 
     def _on_invalid(self, now, reason) -> FollowCommand:
         self.range_m = None
+        self.distance_state = DistanceState.INVALID
         if self._lost_since_t is None:
             self._lost_since_t = now
         lost_time = max(0.0, now - self._lost_since_t)
@@ -244,6 +305,41 @@ class PersonFollowController:
         self._lost_since_t = None
 
     # ------------------------------------------------------ measurement ----
+
+    @staticmethod
+    def _horizontal_distance_value(detection) -> Optional[float]:
+        """Read ``Detection.horizontal_distance_m``; never derive it locally."""
+        if detection is None:
+            return None
+        value = getattr(detection, "horizontal_distance_m", None)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def horizontal_distance(self, detection) -> Optional[float]:
+        """Validated horizontal ground distance (m) from the detection, or None.
+
+        This is the live ``Detection.horizontal_distance_m`` produced upstream by
+        the distance estimator; the follow controller never calculates it.
+        """
+        distance = self._horizontal_distance_value(detection)
+        if distance is None or not math.isfinite(distance) or distance <= 0.0:
+            return None
+        return distance
+
+    def horizontal_distance_state(self, detection) -> DistanceState:
+        """TOO_CLOSE / HOLD / TOO_FAR / INVALID for the live horizontal distance.
+
+        The optical-axis ``distance_m`` is deliberately NOT consulted here.
+        """
+        return classify_horizontal_distance(
+            self._horizontal_distance_value(detection),
+            self.config.follow_distance,
+            self.config.distance_tolerance,
+        )
 
     def measure_range(self, detection, frame_shape) -> Optional[float]:
         """Range (m) to the target using its attached measurement or an injected fallback."""
@@ -313,6 +409,24 @@ class PersonFollowController:
         return (obj_h * fy) / detection.height
 
     # ------------------------------------------------------------- speed ----
+
+    def forward_speed_target(self, detection, state: Optional[DistanceState] = None) -> float:
+        """Forward speed (m/s) driven by the horizontal-distance state.
+
+        TOO_FAR reuses the existing speed profile, evaluated on ``H``. TOO_CLOSE
+        commands the fixed backward speed ``-FOLLOW_REVERSE_SPEED`` (never
+        proportional). HOLD and INVALID command zero forward speed.
+        """
+        if state is None:
+            state = self.horizontal_distance_state(detection)
+        if state is DistanceState.TOO_CLOSE:
+            return -abs(self.config.reverse_speed)
+        if state is not DistanceState.TOO_FAR:
+            return 0.0
+        horizontal = self.horizontal_distance(detection)
+        if horizontal is None:
+            return 0.0
+        return self._target_forward_speed(horizontal)
 
     def _target_forward_speed(self, distance_m: float) -> float:
         # This check must happen before applying ``min_speed``.  A configured

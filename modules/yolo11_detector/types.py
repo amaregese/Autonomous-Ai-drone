@@ -22,6 +22,11 @@ class Detection:
         self.distance_valid = False
         self.distance_source = None
         self.distance_confidence = 0.0
+        self.horizontal_distance_m = None
+        self.horizontal_distance_valid = False
+        self.horizontal_distance_source = None
+        self.horizontal_altitude_m = None
+        self.slant_range_m = None
 
     @property
     def distance(self):

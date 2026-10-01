@@ -634,11 +634,25 @@ is not a calibration).
 | 362 | `loss_action` | |
 | 366 | `loss_timeout_reached` | honours `FOLLOW_TARGET_LOSS_TIMEOUT_S` |
 
-**Behaviour.** Forward speed comes from the distance→speed breakpoints in
-`app_config.py`; within 2.0 m the drone hovers. Lateral speed is driven by the horizontal
-image-space delta scaled by `FOLLOW_LATERAL_GAIN` and capped at 0.6 m/s. Speed changes are
-rate-limited to 0.5 m/s². Measurements below `FOLLOW_CONFIDENCE_THRESHOLD` or older than
+**Behaviour.** Forward control uses the horizontal ground distance `H` from the vision
+distance-estimation pipeline:
+
+| `H` | Action |
+| --- | --- |
+| `H > 4.5 m` | forward (existing distance→speed breakpoints) |
+| `3.5–4.5 m` | hold |
+| `H < 3.5 m` | backward at `FOLLOW_REVERSE_SPEED` (0.3 m/s) |
+| invalid `H` | stop |
+
+The setpoint is `FOLLOW_DISTANCE` (4.0 m) with `DISTANCE_TOLERANCE` (0.5 m); the backward speed
+is fixed at `FOLLOW_REVERSE_SPEED` (0.3 m/s). Lateral speed is driven by the horizontal
+image-space delta scaled by `FOLLOW_LATERAL_GAIN` and capped at 0.6 m/s. All velocity changes
+remain rate-limited to 0.5 m/s². Measurements below `FOLLOW_CONFIDENCE_THRESHOLD` or older than
 `FOLLOW_MAX_DETECTION_AGE_S` are rejected.
+
+**Geometry limitation.** The horizontal conversion assumes an approximately level camera
+orientation; pitch compensation / ATTITUDE integration is not yet implemented. The existing
+camera calibration values have not been changed.
 
 **Loss handling.** After `FOLLOW_TARGET_LOSS_TIMEOUT_S` (10 s) the configured loss action
 fires. `FOLLOW_RTL_ON_LOSS` is `False` by default, so the default is a non-RTL loss action;

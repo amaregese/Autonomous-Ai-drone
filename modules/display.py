@@ -8,6 +8,8 @@ from typing import Optional
 import cv2
 import numpy as np
 
+from modules import app_config
+
 DISPLAY_WIDTH = 960
 VIDEO_H = 720
 HEADER_FINAL = 84
@@ -546,7 +548,8 @@ def draw_takeoff_button(img, armed: bool = False):
         fill, border, dot_c = (26, 28, 34), (70, 78, 92), HUD_TEXT_DIM
 
     return _pill_button(img, bx, by, _TAKEOFF_BUTTON_W, _TAKEOFF_BUTTON_H,
-                        "TAKEOFF 5m", fill, border, dot_c, enabled=armed)
+                        f"TAKEOFF {app_config.TAKEOFF_ALTITUDE:.0f}m",
+                        fill, border, dot_c, enabled=armed)
 
 
 def draw_land_button(img, armed: bool = False):

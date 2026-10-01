@@ -48,7 +48,16 @@ from .estimator import DistanceEstimator
 from .filter import DistanceVelocityFilter
 from .lidar import FixedLidar, LidarSource, SimulatedLidar
 from .models import DepthMeasurement, LidarMeasurement, Source, TargetState, VisionMeasurement
-from .vision import VisionDistanceEstimator, annotate_detection, annotate_detections, estimate_detection
+from .vision import (
+    VisionDistanceEstimator,
+    annotate_detection,
+    annotate_detections,
+    annotate_horizontal,
+    axis_depth_to_slant_range,
+    estimate_detection,
+    estimate_detection_horizontal,
+    slant_to_horizontal_distance,
+)
 
 __all__ = [
     "CalibrationError",
@@ -78,7 +87,11 @@ __all__ = [
     "VisionMeasurement",
     "annotate_detection",
     "annotate_detections",
+    "annotate_horizontal",
+    "axis_depth_to_slant_range",
     "estimate_detection",
+    "estimate_detection_horizontal",
+    "slant_to_horizontal_distance",
     "ZoeDepthBackend",
     "compute_depth_confidence",
     "extract_depth_roi",

@@ -25,7 +25,14 @@ class Source(Enum):
 
 @dataclass(slots=True)
 class VisionMeasurement:
-    """A single monocular vision distance candidate."""
+    """A single monocular vision distance candidate.
+
+    ``distance_m`` is the optical-axis (camera-forward Z) depth from the
+    pinhole bbox-height model. ``horizontal_distance_m`` is an OPTIONAL,
+    separately-derived ground-plane horizontal distance; it is ``None`` unless
+    an explicit horizontal measurement path was used. Consumers must not treat
+    the two as interchangeable.
+    """
 
     distance_m: Optional[float] = None
     confidence: float = 0.0
@@ -35,6 +42,9 @@ class VisionMeasurement:
     truncated: Optional[bool] = None
     valid: bool = False
     timestamp: Optional[float] = None
+    horizontal_distance_m: Optional[float] = None
+    slant_range_m: Optional[float] = None
+    altitude_m: Optional[float] = None
 
     def __post_init__(self) -> None:
         if self.timestamp is None:

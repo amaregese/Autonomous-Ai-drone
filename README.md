@@ -149,8 +149,7 @@ battery 20 %, minimum GPS fix type 3, and FCU mode must be `GUIDED`.
 python -m pytest -q
 ```
 
-Current result: **227 passed, 2 failed** (the two failures are pre-existing and unrelated to
-any cleanup; see [Testing](#testing)).
+Current result: **355 passed, 315 subtests passed** (see [Testing](#testing)).
 
 ---
 
@@ -433,11 +432,15 @@ wrapper in particular.
 
 ### What is not in the tree
 
-The repository has been trimmed to a deployment shape. Removed: `tests/`, the two duplicate
+The repository has been trimmed to a deployment shape. Removed: the two duplicate
 `tools/test_*.py` runners, 16 root audit scripts, `AUTHORITATIVE_FILE_INVENTORY.csv`, all 33
 non-`README.md` Markdown files, 12 `__pycache__` directories, the stale
 `shared/__pycache__/sgc_config.cpython-312.pyc` bytecode, and the `.idea/` + `.vtcode/`
 tooling. The only tracked file still matched by an ignore rule is the model, by design.
+
+`tests/` was removed in that trim and has since been **restored and extended**: it now holds
+10 tracked files covering servo channel planning, servo MAVLink routing, link selection, the
+SGC receiver and app config — see [Testing](#testing).
 
 **`modules/navigation.py`, `modules/vision.py` and `modules/vision_utils/` were kept even
 though nothing on the flight path imports them.** They are the reference implementation behind
@@ -445,10 +448,9 @@ the "Legacy bbox" benchmark column — `distance_estimator/evaluation.py:99` imp
 `FollowController` from them — so deleting them would make the distance benchmark
 unreproducible. See [Historical audit record](#historical-audit-record).
 
-**The test suite was removed, so there is now no automated regression coverage.** Restore it
-from history with `git checkout cd766f91 -- tests/` if you want it back; the two
-import-laziness tests in `tests/test_distance_estimator_depth.py` failed even at that commit,
-so the baseline was 227 passed / 2 failed.
+**Automated regression coverage lives in `tests/`** — 355 tests, all passing
+(`python -m pytest -q`). The older 227/2 baseline and the two depth-laziness failures refer to
+a deleted suite; see [Testing](#testing).
 
 ---
 
@@ -591,19 +593,20 @@ D-class importers:
 
 | File | Imported by |
 | --- | --- |
-| `report.py` | `tests/test_distance_dataset_benchmark.py`, `tools/run_distance_benchmark.py` |
+| `report.py` | `tools/run_distance_benchmark.py` (and the removed `tests/test_distance_dataset_benchmark.py`, restorable from history) |
 | `analysis.py` | `tools/run_distance_benchmark.py` |
-| `dataset.py` | `tests/test_distance_dataset_benchmark.py`, `tools/create_distance_dataset.py`, `tools/live_distance_capture.py`, `tools/run_distance_benchmark.py` |
-| `evaluation.py` | `tests/test_distance_dataset_benchmark.py`, `tools/run_distance_benchmark.py` |
+| `dataset.py` | `tools/create_distance_dataset.py`, `tools/live_distance_capture.py`, `tools/run_distance_benchmark.py` (and the removed `tests/test_distance_dataset_benchmark.py`) |
+| `evaluation.py` | `tools/run_distance_benchmark.py` (and the removed `tests/test_distance_dataset_benchmark.py`) |
 
 No circular dependencies are reported.
 
 ### Optional metric depth
 
 `depth_backend/metric_depth.py` is optional and requires **torch + transformers** (ZoeDepth).
-It is not imported by the core path — that laziness is what
-`tests/test_distance_estimator_depth.py` checks, and those checks are currently failing. To
-enable it in benchmarks, pass `--enable-depth`; the model downloads once on first use.
+It is not imported by the core path; that laziness was checked by the removed
+`tests/test_distance_estimator_depth.py` (restorable from history at `cd766f91`) and is not
+covered by the current suite. To enable it in benchmarks, pass `--enable-depth`; the model
+downloads once on first use.
 
 ### Camera intrinsics
 
@@ -1431,39 +1434,28 @@ for latency; lower is faster. On Jetson the intended path is hardware H.264 via 
 
 ## Testing
 
-**The test suite has been removed from this tree.** There is no `tests/` directory and no
-`pytest` configuration, so `python -m pytest` collects nothing.
-
-The last recorded baseline, at commit `cd766f91` before the suite was deleted, was:
-
-```
-227 passed, 2 failed
-```
-
-The two failures were pre-existing and unrelated to any cleanup:
-
-```
-tests/test_distance_estimator_depth.py::TestBackendLaziness::test_core_import_does_not_load_torch_or_transformers
-tests/test_distance_estimator_depth.py::TestBackendLaziness::test_metric_depth_module_import_is_lazy
-```
-
-Both assert that importing the core distance-estimator path does not pull in torch or
-transformers; they failed at `tests/test_distance_estimator_depth.py:299`. The suite covered
-the estimator core, the depth backend, the dataset/evaluation/report modules,
-`PersonFollowController`, follow-distance gating, distance projection, detection labels, and
-the calibration-capture and mirroring-diagnostic tools.
-
-**To restore it:**
-
 ```bash
-git checkout cd766f91 -- tests/
+python -m pytest -q
 ```
 
-That returns the 11 modules and re-establishes the 227/2 baseline. Nothing else in the
-repository needs `tests/` — the flight path and the benchmark harness are unaffected.
+Current result: **355 passed, 315 subtests passed**.
 
-Because there is no automated coverage, the smoke checks that stood in for it are the ones
-worth running after any Jetson adaptation:
+Tracked test files:
+
+| File | Covers |
+| --- | --- |
+| `tests/test_servo_mavlink.py` | servo command routing, discovery-cache refresh, consent gates, RC-override watchdog, pulse verification |
+| `tests/test_servo_channels.py` | `plan_drive`, `parse_servo_functions`, gimbal-channel picking, drive constants |
+| `tests/test_link_selection.py` | `--drone-link` precedence, real-FCU fallback, endpoint recognition |
+| `tests/test_sgc_receiver.py` | SGC command parsing, queueing, validation, `panic_rtl` priority |
+| `tests/test_app_config.py` | configuration constants |
+| `tests/test_distance_horizontal.py`, `tests/test_h_follow_state_machine.py`, `tests/test_horizontal_live_wiring.py`, `tests/test_selected_diagnostic.py` | distance estimation and follow-state wiring |
+
+The suite is the regression gate for the servo/gimbal work: `TestStaleDiscoveryCache` in
+`tests/test_servo_mavlink.py` pins the fix for the stale-discovery-cache race where a channel
+unknown at connect time was refused even after the FCU answered later.
+
+Smoke checks worth running after any Jetson adaptation:
 
 ```bash
 # entry point imports and reaches drone connection
@@ -1474,8 +1466,11 @@ python tools/run_distance_benchmark.py --no-plots
 python -c "import cv2; cap=cv2.VideoCapture(0, cv2.CAP_V4L2); print(cap.isOpened())"
 ```
 
-> An older project report stated "No test suite present". That was wrong; the suite existed
-> and was removed deliberately during the deployment trim, not because it was never built.
+> **Historical.** The suite was deleted during the deployment trim; the baseline at that point
+> (`cd766f91`) was 227 passed / 2 failed, the two failures being the depth-backend import-laziness
+> tests in the since-removed `tests/test_distance_estimator_depth.py`. The current suite is
+> unrelated to that baseline — it was rebuilt for the servo, link-selection and SGC work and
+> does not include the depth-laziness checks.
 
 ---
 

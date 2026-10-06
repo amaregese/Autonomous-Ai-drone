@@ -15,6 +15,17 @@ logger = logging.getLogger(__name__)
 # but an unbounded queue would let a flood grow without limit.
 MAX_PENDING_COMMANDS = 32
 
+# The SGC camera-servo protocol bounds: pulse in microseconds, channel is a
+# physical output. These mirror the vehicle-side limits in
+# modules/drone_backend/servo_channels.py (SERVO_PULSE_MIN/MAX,
+# SERVO_CHANNEL_MIN/MAX), but are stated here as protocol numbers so the
+# receiver stays stdlib-only and validates the UDP payload before anything
+# vehicle-side is involved.
+SERVO_PULSE_MIN = 1000
+SERVO_PULSE_MAX = 2000
+SERVO_CHANNEL_MIN = 1
+SERVO_CHANNEL_MAX = 16
+
 
 @dataclass(frozen=False, slots=True)
 class SGCCommand:
@@ -24,7 +35,9 @@ class SGCCommand:
     confidence: float = 0.0
     frame_w: int = 0
     frame_h: int = 0
-    channel: int = 8
+    # None means "the channel the drone detected", not a hardcoded default:
+    # every SGC that omitted `channel` used to be silently sent to channel 8.
+    channel: Optional[int] = None
     pulse: Optional[int] = None
     angle: Optional[float] = None
 
@@ -87,6 +100,67 @@ def _find_best_match(
     return None
 
 
+def parse_sgc_command(data: bytes) -> SGCCommand:
+    """Decode one SGC datagram into an ``SGCCommand``.
+
+    Raises ``UnicodeDecodeError``/``json.JSONDecodeError`` for a packet that is
+    not UTF-8 JSON, and ``ValueError`` for a well-formed object that breaks the
+    protocol: anything without a non-empty string ``type``, or a ``servo``
+    command whose ``pulse``/``channel`` is outside the documented ranges.
+
+    Validation is deliberately strict rather than coercing or clamping: the
+    sender asked for a specific servo position, and silently turning
+    ``channel: "8"`` into 8 or ``pulse: 3000`` into 2000 would move hardware in
+    a way the SGC never requested. A rejected packet is dropped and logged by
+    the caller - it must never take the flight loop down.
+    """
+    msg = json.loads(data.decode("utf-8"))
+    if not isinstance(msg, dict):
+        raise ValueError(
+            f"SGC payload must be a JSON object, got {type(msg).__name__}")
+
+    command_type = msg.get("type")
+    if not isinstance(command_type, str) or not command_type:
+        raise ValueError(
+            f"SGC payload needs a non-empty string 'type', got {command_type!r}")
+
+    channel = msg.get("channel")
+    pulse = msg.get("pulse")
+    if command_type == "servo":
+        # `bool` is an int subclass, so True would pass an isinstance(int)
+        # check; JSON `true` is not a channel or a pulse.
+        if channel is not None and (
+            isinstance(channel, bool)
+            or not isinstance(channel, int)
+            or not SERVO_CHANNEL_MIN <= channel <= SERVO_CHANNEL_MAX
+        ):
+            raise ValueError(
+                "servo 'channel' must be an integer "
+                f"{SERVO_CHANNEL_MIN}-{SERVO_CHANNEL_MAX}, got {channel!r}")
+        if pulse is not None and (
+            isinstance(pulse, bool)
+            or not isinstance(pulse, int)
+            or not SERVO_PULSE_MIN <= pulse <= SERVO_PULSE_MAX
+        ):
+            raise ValueError(
+                "servo 'pulse' must be an integer "
+                f"{SERVO_PULSE_MIN}-{SERVO_PULSE_MAX}, got {pulse!r}")
+
+    return SGCCommand(
+        command_type=command_type,
+        bbox=msg.get("bbox"),
+        class_name=msg.get("class_name", ""),
+        confidence=msg.get("confidence", 0.0),
+        frame_w=msg.get("frame_w", 0),
+        frame_h=msg.get("frame_h", 0),
+        # None (missing `channel`) means automatic/default channel selection
+        # downstream - it is not an error, so it is passed through as-is.
+        channel=channel,
+        pulse=pulse,
+        angle=msg.get("angle"),
+    )
+
+
 class SGCCommandReceiver:
     def __init__(self, port: int = 9002) -> None:
         self._port = port
@@ -120,29 +194,22 @@ class SGCCommandReceiver:
             except OSError:
                 break
             try:
-                msg = json.loads(data.decode("utf-8"))
-                cmd = SGCCommand(
-                    command_type=msg.get("type", ""),
-                    bbox=msg.get("bbox"),
-                    class_name=msg.get("class_name", ""),
-                    confidence=msg.get("confidence", 0.0),
-                    frame_w=msg.get("frame_w", 0),
-                    frame_h=msg.get("frame_h", 0),
-                    channel=msg.get("channel", 8),
-                    pulse=msg.get("pulse"),
-                    angle=msg.get("angle"),
-                )
-                with self._lock:
-                    if len(self._pending) == self._pending.maxlen:
-                        self._dropped += 1
-                        logger.warning(
-                            "SGC command queue full (%d) - dropping oldest command",
-                            self._pending.maxlen)
-                    self._pending.append(cmd)
-                    self._last_peer = addr[0] if addr else None
-                logger.debug("SGC command: %s", cmd.command_type)
+                cmd = parse_sgc_command(data)
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:
                 logger.warning("Bad SGC command from %s: %s", addr, exc)
+                continue
+            except ValueError as exc:
+                logger.warning("Rejected SGC command from %s: %s", addr, exc)
+                continue
+            with self._lock:
+                if len(self._pending) == self._pending.maxlen:
+                    self._dropped += 1
+                    logger.warning(
+                        "SGC command queue full (%d) - dropping oldest command",
+                        self._pending.maxlen)
+                self._pending.append(cmd)
+                self._last_peer = addr[0] if addr else None
+            logger.debug("SGC command: %s", cmd.command_type)
 
     def pop_command(self) -> Optional[SGCCommand]:
         """Oldest pending command, or None. FIFO - order of sending is kept."""

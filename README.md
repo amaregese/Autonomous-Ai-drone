@@ -139,8 +139,9 @@ FCU. Because the SGC laptop's IP changes between setups, the app also asks for i
 press ENTER to keep the last known address.
 
 Flight-safety preconditions are enforced before takeoff in `_preflight_follow`
-(`autonomous_drone_main.py:182`): minimum altitude 5 m, minimum battery 20 %, minimum GPS
-fix type 3, and FCU mode must be `GUIDED`.
+(`autonomous_drone_main.py:195`): minimum altitude 2.5 m (below the 3 m cruise/takeoff
+altitude, so a follow is never refused for being at its own configured height), minimum
+battery 20 %, minimum GPS fix type 3, and FCU mode must be `GUIDED`.
 
 ### Test
 
@@ -192,7 +193,7 @@ The central configuration module. Two groups of constants live here.
 | `FOLLOW_LATERAL_GAIN` | 1.2 | |
 | `FOLLOW_TARGET_CLASS` | `"person"` | |
 | `FOLLOW_MAX_DETECTION_AGE_S` | 0.5 | stale-detection rejection |
-| `MIN_FOLLOW_ALT` / `MIN_FOLLOW_BATTERY` / `MIN_FOLLOW_GPS_FIX` / `MIN_FOLLOW_MODE` | 5.0 / 20 / 3 / `"GUIDED"` | preflight gates |
+| `MIN_FOLLOW_ALT` / `MIN_FOLLOW_BATTERY` / `MIN_FOLLOW_GPS_FIX` / `MIN_FOLLOW_MODE` | 2.5 / 20 / 3 / `"GUIDED"` | preflight gates (`MIN_FOLLOW_ALT` = `FOLLOW_ALTITUDE - ALTITUDE_TOLERANCE`) |
 | `DISARM_MAX_ALT` | 0.5 | how far above home altitude the vehicle may be when it is disarmed |
 
 `OBJECT_HEIGHTS` maps each of the 80 COCO classes to an assumed real-world height in metres
@@ -214,7 +215,7 @@ Defined in `autonomous_drone_main.py`. Complete set:
 | `--drone-link` | `auto` | `auto` (ask), `sitl` (running SITL), `sitl-launch` (auto-start SITL in WSL), `real` (serial FCU) |
 | `--drone_connection` | `None` | explicit MAVLink endpoint; overrides `--drone-link auto` |
 | `--sitl-connection` | `udpin:0.0.0.0:14550` | MAVLink endpoint for SITL |
-| `--baud` | 57600 | serial baud for a real FCU |
+| `--baud` | `57600` (overridden by `run_config.json`, which currently sets `115200`) | serial baud for a real FCU |
 | `--no-prompt` | flag | skip interactive prompt |
 | `--model-path` | `YOLO/yolo11n.pt` | detector weights |
 | `--camera` | `None` | force webcam index |
@@ -303,18 +304,33 @@ Starting with
 | `real` | first detected serial/COM port, or `--drone_connection` when given; never starts SITL |
 | `sitl` | `--sitl-connection` (default `udpin:0.0.0.0:14550`) |
 | `sitl-launch` | same endpoint, and ArduPilot SITL is started in WSL first |
-| `auto` (default) | `--drone_connection` if set, else the prompt, else `--mode` when `--no-prompt` is set |
+| `auto` (default) | the real FCU first, then SITL as a fallback; `--drone_connection` overrides both |
 
 Notes:
 
+- **Real FCU first.** In `auto` the app connects to the first detected serial/COM port and only
+  falls back to the SITL endpoint if no vehicle answers there. The fallback is always announced
+  (`[LINK] no flight controller on the previous link - falling back`) and switches the run to `sitl`
+  mode, because quietly attaching to a simulator instead of the drone is the kind of surprise that
+  ends badly. If nothing answers anywhere, every link that was tried is listed before it exits.
+- **An explicit choice is never overridden.** `--drone-link real` with no FCU present exits with a
+  clear message instead of falling back to SITL — you asserted a drone exists, so a silent simulator
+  would hide the real problem. `--drone-link sitl` likewise connects to SITL only and will not grab a
+  real FCU that happens to be plugged in.
+- **No fabricated ports.** With no FCU attached, the real-FCU candidate is simply absent from the
+  list. This used to invent a `COM3` that does not exist and then die on
+  `could not open port 'COM3'` rather than trying the fallback.
 - `auto` is what makes the prompt reachable. A `drone_connection` key in `run_config.json` is an
   explicit endpoint and therefore short-circuits it — delete the key (or set `"drone_link": "auto"`)
   to get the menu back.
 - `sitl-launch` needs WSL on Windows. Elsewhere the app says so and connects to an already-running
   SITL instead of failing.
-- `udp*`/`tcp*` endpoints are recognised as SITL. Selecting one while `--mode flight` prints
-  `[LINK] SITL endpoint selected - running in sitl mode`, so the HUD, the SGC default and
-  `streamer.set_mode` all follow the link you actually picked.
+- `udp`/`tcp` endpoints are recognised as SITL, including the bare `udp:host:port` form. Selecting one
+  while `--mode flight` prints `[LINK] SITL endpoint selected - running in sitl mode`, so the HUD, the
+  SGC default and `streamer.set_mode` all follow the link you actually picked.
+- A SITL in WSL is reached by listening locally on `0.0.0.0:14550` and letting `mavproxy --out
+  <this-host>:14550` send to it. Nothing is listening on the WSL side, so pointing `sitl_connection`
+  at the WSL IP will not work.
 - Whichever option auto-launches SITL is also the one that is stopped on exit (Q), not just
   `--start-sitl`.
 - `baud` only applies to a serial FCU; it is ignored for UDP endpoints.
@@ -742,7 +758,7 @@ as `[SGC] ...`.
 | `land` | — | stops following, clears the target and lands; the app keeps running |
 | `disarm` | — | disarms — **refused above 0.5 m altitude**, so send `land` first |
 | **`panic_rtl`** | — | **panic RTL: immediate return to launch, then the app stops streaming and exits** |
-| `servo` | `channel` (default 8, must be 1–16), `pulse` in µs **or** `angle` in degrees | one servo command; `angle` is converted with `1500 + angle * 500/45`; both forms are clamped to 1000–2000 µs |
+| `servo` | `channel` (optional, 1–16), `pulse` in µs **or** `angle` in degrees | one servo command; `angle` is converted with `1500 + angle * 500/45`; both forms are clamped to 1000–2000 µs. Omit `channel` to use the gimbal channel detected from the autopilot (see [Servo channel detection](#servo-channel-detection)) |
 
 Minimum payloads:
 
@@ -753,7 +769,8 @@ Minimum payloads:
 {"type": "disarm"}
 {"type": "panic_rtl"}
 {"type": "follow_start", "bbox": [320, 240, 120, 260], "class_name": "person"}
-{"type": "servo", "channel": 8, "pulse": 1600}
+{"type": "servo", "pulse": 1600}
+{"type": "servo", "channel": 9, "angle": 20}
 ```
 
 > **SGC team: `takeoff` no longer arms.** Arming and taking off are separate controls now, matching
@@ -805,6 +822,171 @@ Keep the port on the trusted bench network only.
 - **Servo values are validated and clamped** to 1000–2000 µs whether they arrive as `pulse` or
   `angle`, and `channel` must be an integer in 1–16 — otherwise the command is refused with
   `Servo refused: <reason>`.
+- **Servo commands are verified.** After sending, the expected pulse is compared against the vehicle's
+  own `SERVO_OUTPUT_RAW` report. A mismatch logs `Servo chN commanded Xus but the vehicle reports Yus`
+  and names `SERVOx_FUNCTION` and `SERVOx_MIN/MAX` as the things to check. Only readings that arrived
+  *after* the command count, so a leftover report from the previous command cannot fake a fault. For
+  a mapped output the expected value is predicted through the same scaling ArduPilot applies (see
+  below) rather than assuming the pulse comes back unchanged.
+- **Outputs the autopilot will not drive are refused, not ignored.** Assigning `SERVOx_FUNCTION` to a
+  mount axis makes ArduPilot's own `MAV_CMD_DO_SET_SERVO` handler reject the channel
+  (`Channel N is already in use`), because the mount backend owns it. The command is refused with the
+  reason and the parameter change that would fix it. A mapped output whose RC input belongs to the
+  aircraft is refused for the same reason — see
+  [the mapped input must be spare](#the-mapped-input-must-be-spare-and-that-is-your-call-to-make).
+
+#### Servo state in the telemetry packet
+
+Commands arrive over UDP and are never acknowledged, so the detection packet on port 9001 carries the
+outcome of the last one under `telemetry.servo`. No new socket, no new message type:
+
+```json
+"servo": {
+  "detected_channel": 9,
+  "source": "auto",
+  "refused": false,
+  "refusal_reason": null,
+  "reported_pwm": 1600,
+  "limits_hit": false
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `detected_channel` | channel detection resolved to, or `null` when nothing was detected or the command was refused |
+| `source` | `"auto"` (detected) or `"explicit"` (operator/SGC/CLI supplied) |
+| `refused` | the autopilot or the app would not accept the command |
+| `refusal_reason` | why, as the app would print it — `null` when accepted |
+| `reported_pwm` | pulse **read back from the FCU**, not the commanded value; `null` before anything is reported |
+| `limits_hit` | the output landed somewhere other than the mapped prediction, which is what a servo on its `SERVOx_MIN`/`SERVOx_MAX` end stop looks like |
+
+Every key is always present, so a display can bind to the shape once; unknown values are `null` or
+`false` rather than absent. The block updates with the existing telemetry, so it arrives at whatever
+rate the detection stream already runs.
+
+### Servo channel detection
+
+The gimbal channel is **detected from the flight controller**, not hardcoded. At connect time the
+app requests the `SERVO_OUTPUT_RAW` and `RC_CHANNELS_RAW` streams and reads the `SERVOx_FUNCTION`
+parameters, then prints what it found:
+
+```
+[SERVO] Output functions: SERVO9=[147] RC Input 8 (mapped)
+[SERVO] Camera gimbal detected on channel 9 (RC Input 8 (mapped))
+[SERVO] SERVO9 follows RC input 8 with matched limits (1000, 1500, 2000) - commanded pulses pass through unchanged.
+```
+
+Detection picks the lowest-numbered output assigned a mount axis, preferring pitch, then yaw, then
+roll. Mount deploy/retract and the lens controls (ISO, aperture, focus, shutter) are recognised but
+never selected — steering those does not aim the camera.
+
+A detected mount axis is reported but **refused** for driving, because `MAV_CMD_DO_SET_SERVO` cannot
+reach it; assigning `SERVOx_FUNCTION = 0` is what makes a gimbal output drivable.
+
+Three ways to influence the result, in priority order:
+
+1. `channel` in the SGC `servo` command, for when the SGC knows its own wiring.
+2. `--servo-channel N`, which pins the channel for the whole run and overrides the SGC. Also
+   settable in `run_config.json` as `"servo_channel": 9`.
+3. Otherwise, whatever was detected. If nothing was detected the command is **refused** rather than
+   sent to a guessed channel — driving an arbitrary output risks moving a motor or a control surface.
+
+One further flag applies to *how* the channel is driven, not which: `--allow-rc-override`, also
+settable as `"allow_rc_override": true` in `run_config.json`. Off by default; see
+[the mapped input must be spare](#the-mapped-input-must-be-spare-and-that-is-your-call-to-make).
+
+### Configuring the autopilot: `k_rcinN_mapped`
+
+A gimbal output on an aux channel is **not** drivable by direct PWM, and this is not a limitation of
+this app. ArduPilot's `MAV_CMD_DO_SET_SERVO` handler only accepts a whitelist of functions
+(`AP_ServoRelayEvents::do_set_servo`): unassigned outputs, manual pass-through, sprayer, gripper. An
+output assigned a mount function falls through to `default:` and is refused, because the mount
+backend is expected to own it.
+
+The way to make an aux output drivable is to assign it to an RC input instead:
+
+| `SERVOx_FUNCTION` | Meaning | Driven by |
+| --- | --- | --- |
+| `0` | unassigned | `MAV_CMD_DO_SET_SERVO` — no RC input, no consent needed |
+| `7` / `6` / `8` | mount pitch / yaw / roll | mount protocol only — **not** direct PWM |
+| `51`–`66` (`k_rcinN`) | follows RC input N, unchanged | `RC_CHANNELS_OVERRIDE` on input N — needs `--allow-rc-override` |
+| `140`–`155` (`k_rcinN_mapped`) | follows RC input N, rescaled | `RC_CHANNELS_OVERRIDE` on input N — needs `--allow-rc-override` |
+
+An aux output is reachable either way, but the two routes are not equivalent. `SERVO9_FUNCTION = 0`
+makes the app drive the output directly and touch no RC input at all — that is the recommended setup.
+`SERVO9_FUNCTION = 147` means "output 9 follows RC input 8", which requires an override on input 8:
+`RC_CHANNELS_OVERRIDE` addresses RC **inputs** and carries only 8 slots, so an output above channel 8
+must be mapped to an input inside that range. That input has to be genuinely spare, which the app
+cannot establish for you.
+
+#### The mapped input must be spare, and that is your call to make
+
+`RC_CHANNELS_OVERRIDE` writes RC **inputs**, and ArduPilot reads some of them straight into flight
+control. Writing a servo pulse into one of those does not move a camera — it commands the aircraft.
+
+The app refuses inputs it can prove are unsafe:
+
+- inputs 1–5 are always refused (throttle/roll/pitch/yaw/mode on ArduCopter, read from the RC stream
+  directly; no output assignment can free them);
+- inputs 6–8 are refused when output N — which input N feeds under the default input→output mapping —
+  is assigned anything else;
+- an output whose `SERVOx_FUNCTION` has not been read counts as reserved. An unknown is not a safe.
+
+**But passing those checks is not sufficient, so every RC override requires `--allow-rc-override`.**
+`SERVOx_FUNCTION` records which input an output *follows*; it says nothing about which inputs
+`AP_Copter` reads for flight control, and that depends on the channel mapping and the airframe. A
+bench once mapped `SERVO9_FUNCTION = 145` (RC input 6), passed every static check the app had, and
+sweeping it walked the aircraft through RTL, STABILIZE, AUTO, CIRCLE and LAND — input 6 was the mode
+channel on that vehicle and nothing in the parameter map admitted it. Only you know your own wiring,
+so the override is opt-in:
+
+```
+[SGC] Servo refused: Servo ch9 is k_rcin6_mapped, so driving it needs
+RC_CHANNELS_OVERRIDE on RC input 6. That input passes every check this app can make statically, but
+RC_CHANNELS_OVERRIDE writes RC inputs and ArduPilot reads some of them straight into flight control
+- including the mode channel, whose position depends on the channel mapping and frame, not on
+SERVOx_FUNCTION. Refusing rather than sweeping the aircraft through its flight modes. If you have
+confirmed RC input 6 is spare on this vehicle, re-run with --allow-rc-override; ...
+```
+
+When you do opt in, the app also watches the mode channel after **every** write. ArduPilot holds an
+override until it is explicitly released, so a bad one stays bad; if the flight mode moves inside the
+2.5 s window following a write, the app releases the override and reports the refusal:
+
+```
+[SGC] Servo refused: Servo ch9 wrote RC input 6 and the vehicle mode changed STABILIZE -> RTL
+straight afterwards, so that input is flight control, not a spare. Override released. ...
+```
+
+The watchdog is not the only release. Any transition out of normal operation — `land`, `disarm`,
+RTL, and the shutdown path — releases every outstanding override first
+(`SITL: RC override released (LAND)`), because an override left latched survives the app's own exit
+and would keep pinning that RC input for the rest of the flight.
+
+To confirm which inputs your vehicle actually reads, look at the mode slots ArduPilot prints at
+startup — `[SERVO] Output functions` — or run `mode_channel()`'s inputs: 1–8, and the mode channel is
+the one carrying the FLTMODE assignment.
+
+**The override-free alternative.** A gimbal does not need an RC path at all. Set
+`SERVO9_FUNCTION = 0` and the app drives it with `MAV_CMD_DO_SET_SERVO`, which addresses the output
+directly and touches no RC input. That is the recommended setup for a camera.
+
+Two further consequences worth planning for:
+
+- **A mapped output is a pass-through, not a gimbal controller.** ArduPilot provides no stabilisation
+  through it, and `SERVOx_FUNCTION` no longer says "gimbal", so detection has to infer the channel
+  from the wiring. A single mapped output is accepted; several are ambiguous and refused rather than
+  guessed at.
+- **A mapped output rescales its input.** ArduPilot normalises the RC value against that channel's
+  own MIN/TRIM/MAX, scales to ±4500, then converts back through the *output*'s MIN/TRIM/MAX
+  (`SRV_Channel::output_ch`). So a pulse is not echoed back unchanged: with RC8 at 1000/1500/1800 and
+  SERVO9 at 1100/1500/1900, commanding 1750 µs makes the vehicle report 1833 µs. Set
+  `SERVOx_MIN/TRIM/MAX` and `RC{N}_MIN/TRIM/MAX` to the **same** values for a 1:1 mapping, which is
+  what the app assumes when it checks the read-back. Connect logs a warning when they differ.
+
+The function numbers are ArduPilot `SRV_Channel::Function` values, **not** MAVLink
+`MAV_SERVO_FUNCTION` — the two schemes collide (MAVLink's `MAV_SERVO_FUNCTION_GIMBAL_ROLL` is 26,
+which is ArduPilot's *ground steering*), so the code only ever interprets the ArduPilot table.
 
 To try a command from a laptop without running the SGC:
 

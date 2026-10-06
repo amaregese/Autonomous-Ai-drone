@@ -12,7 +12,10 @@ Examples:
     python tools/send_sgc_command.py --host 192.168.1.42 --type disarm
     python tools/send_sgc_command.py --host 192.168.1.42 --type select_target \\
         --bbox 320 240 120 260 --class-name person
-    python tools/send_sgc_command.py --host 192.168.1.42 --type servo --channel 8 --pulse 1600
+    python tools/send_sgc_command.py --host 192.168.1.42 --type servo --pulse 1600
+
+``servo`` without ``--channel`` uses the gimbal channel the drone detected from
+the autopilot, so the channel does not have to be repeated here.
 
 ``takeoff`` no longer arms the vehicle: send ``arm`` first, then ``takeoff``.
 
@@ -60,7 +63,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--confidence", type=float, default=0.0, help="confidence hint (optional)")
     parser.add_argument("--frame-w", type=int, default=0, help="frame width (optional)")
     parser.add_argument("--frame-h", type=int, default=0, help="frame height (optional)")
-    parser.add_argument("--channel", type=int, default=8, help="servo channel (default: 8)")
+    parser.add_argument("--channel", type=int, default=None,
+                        help="servo channel 1-16 (default: the gimbal channel the "
+                             "drone detected from the autopilot's SERVOx_FUNCTION)")
     parser.add_argument("--pulse", type=int, default=None, help="servo pulse in microseconds")
     parser.add_argument("--angle", type=float, default=None, help="servo angle in degrees")
     parser.add_argument("--dry-run", action="store_true", help="print the payload without sending")
@@ -78,7 +83,10 @@ def main(argv=None) -> int:
         payload["frame_w"] = args.frame_w
         payload["frame_h"] = args.frame_h
     if args.cmd_type == "servo":
-        payload["channel"] = args.channel
+        # Omit channel entirely when not given, so the drone uses its detected
+        # gimbal channel rather than being told a hardcoded one.
+        if args.channel is not None:
+            payload["channel"] = args.channel
         # Send only the field that was given, so the payload matches the
         # documented minimum instead of carrying explicit nulls.
         if args.pulse is not None:

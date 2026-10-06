@@ -53,6 +53,7 @@ from modules.display import (
     DISPLAY_HEIGHT,
     HEADER_FINAL,
 )
+from modules.drone_backend import servo_channels
 from modules.person_follow import PersonFollowController
 from modules.distance_estimator import (
     DEFAULT_CONFIGURED_INTRINSICS,
@@ -100,7 +101,9 @@ parser.add_argument('--drone_connection', type=str, default=_default('drone_conn
                     help='Explicit MAVLink endpoint; overrides --drone-link auto')
 parser.add_argument('--sitl-connection', type=str, default=_default('sitl_connection', None),
                     help='MAVLink endpoint for SITL (default: udpin:0.0.0.0:14550)')
-parser.add_argument('--baud', type=int, default=_default('baud', 57600), help='Serial baud rate for a real FCU (default: 57600)')
+parser.add_argument('--baud', type=int, default=_default('baud', 57600),
+                    help='Serial baud rate for a real FCU (default: the baud in run_config.json '
+                         'if set, else 57600)')
 _add_flag(parser, '--no-prompt', '--prompt', 'no_prompt', False,
           'Deprecated: the flight-controller link is auto-detected; accepted for compatibility')
 parser.add_argument('--model-path', type=str, default=_default('model_path', 'YOLO/yolo11n.pt'))
@@ -134,6 +137,15 @@ _add_flag(parser, '--headless', '--no-headless', 'headless', False,
 _add_flag(parser, '--no-flip-camera', '--flip-camera', 'no_flip_camera', False,
           'Disable horizontal camera flip (default: flip enabled for mirrored cameras)')
 parser.add_argument('--lidar-port', type=str, default=_default('lidar_port', '/dev/ttyTHS1'), help='LiDAR serial port (default: /dev/ttyTHS1 on Jetson)')
+parser.add_argument('--servo-channel', type=int, default=_default('servo_channel', None),
+                    help='Camera gimbal servo channel, 1-16. Default: detected from the '
+                         "autopilot's SERVOx_FUNCTION parameters at connect")
+parser.add_argument('--allow-rc-override', action='store_true',
+                    default=_default('allow_rc_override', False),
+                    help='Permit RC_CHANNELS_OVERRIDE for mapped servo outputs. Off by '
+                         'default: an override writes RC *inputs*, and ArduPilot reads some '
+                         'of them straight into flight control. Only enable this after '
+                         'confirming the mapped input is spare on this vehicle')
 
 args = parser.parse_args()
 _SGC_HOST_FROM_CLI = any(
@@ -255,6 +267,32 @@ def _airframe_readiness_problems():
     except Exception:
         problems.append("cannot read EKF status")
     return problems
+
+
+LINK_WARN_SECONDS = 5.0
+_last_link_warning_at = 0.0
+
+
+def _check_link_health():
+    """Warn when messages from the FCU stop arriving.
+
+    A dropped USB or telemetry cable leaves the render loop running and every
+    command silently unsent - the vehicle's own failsafe is then the only thing
+    managing it, so the operator has to know the link is gone. Warning only: an
+    automatic RTL fired off a few dropped packets would be worse than the
+    problem it solves, so the decision to take over stays with the operator.
+    """
+    global _last_link_warning_at
+    age = drone.telemetry_age()
+    if age is None or age < LINK_WARN_SECONDS:
+        return
+    now = time.time()
+    if now - _last_link_warning_at < 2.0:
+        return
+    _last_link_warning_at = now
+    msg = f"FCU TELEMETRY LOST ({age:.0f}s) - check the MAVLink link"
+    print(f"[LINK] {msg}")
+    set_hud_status(msg, (0, 0, 255), 5.0)
 
 
 _command_in_flight = False
@@ -426,13 +464,26 @@ def _on_mouse(event, x, y, flags, param):
     tracking_session.handle_mouse_event(event, x, y, flags, param)
 
 
-def _serial_heartbeat_ok(path, timeout=1.5):
+def _probe_baud():
+    """Baud the serial probe opens ports at.
+
+    The probe answers "will pymavlink get a heartbeat on this port?", so it has
+    to use the baud pymavlink will use - the old hard-coded 115200 read garbage
+    from a 57600 vehicle and could miss a perfectly good FCU.
+    """
+    try:
+        return int(args.baud)
+    except Exception:
+        return 115200
+
+
+def _serial_heartbeat_ok(path, baud=115200, timeout=1.5):
     try:
         import serial
     except Exception:
         return False
     try:
-        s = serial.Serial(path, 115200, timeout=0.3)
+        s = serial.Serial(path, baud, timeout=0.3)
         s.reset_input_buffer()
         deadline = time.time() + timeout
         while time.time() < deadline:
@@ -448,7 +499,26 @@ def _serial_heartbeat_ok(path, timeout=1.5):
     return False
 
 
+_serial_probe_cache = None
+
+
 def _detect_serial_ports():
+    """Serial ports to try, probed at the configured baud.
+
+    The result is cached because this is called twice per startup (once to
+    pick the link, once to build the fallback candidates) and each probe opens
+    every port for up to 1.5s - churning the FCU's port twice right before
+    pymavlink opens it. An empty result is not cached, so a vehicle that is
+    still enumerating gets a second chance on the later call.
+
+    Probed ports come first but are never dropped: a probe can fail on the real
+    FCU (busy with another ground station, transient error) while another USB
+    device happens to look live, and dropping the FCU then hid it from the
+    fallback list entirely.
+    """
+    global _serial_probe_cache
+    if _serial_probe_cache:
+        return list(_serial_probe_cache)
     ports = []
     try:
         from serial.tools import list_ports
@@ -463,19 +533,37 @@ def _detect_serial_ports():
         for pattern in ["/dev/cu.usb*", "/dev/ttyACM*", "/dev/ttyUSB*", "/dev/serial/by-id/*"]:
             ports.extend(sorted(glob.glob(pattern)))
     ports = sorted(set(ports))
-    live = [p for p in ports if _serial_heartbeat_ok(p)]
-    return live if live else ports
+    baud = _probe_baud()
+    live = [p for p in ports if _serial_heartbeat_ok(p, baud=baud)]
+    ordered = live + [p for p in ports if p not in live]
+    if ordered:
+        _serial_probe_cache = ordered
+    return ordered
 
 
 def _default_fcu_serial():
+    """The real FCU's serial port, or None when no FCU is attached.
+
+    Returning None when nothing is detected matters: this used to return a
+    hardcoded "COM3" that does not exist, and the run then died with
+    "could not open port 'COM3'" instead of trying the SITL fallback.
+    """
     if os.name == "nt":
         ports = _detect_serial_ports()
-        return ports[0] if ports else "COM3"
+        return ports[0] if ports else None
+    ports = _detect_serial_ports()
+    if ports:
+        return ports[0]
+    # Nothing enumerated; keep the conventional path so a udev-less Linux box
+    # still has something to try before falling back to SITL.
     return "/dev/ttyACM0"
 
 
 _SITL_ENDPOINT_DEFAULT = "udpin:0.0.0.0:14550"
-_SITL_PREFIXES = ("udpin", "udpout", "tcpin", "tcpout")
+# "udp"/"tcp" must be here too: pymavlink accepts the bare forms as well as
+# udpin/udpout, and a bare "udp:172.20.176.1:14550" used to read as a *real*
+# FCU, which put the run into flight mode while talking to the simulator.
+_SITL_PREFIXES = ("udp", "tcp")
 
 
 def _sitl_endpoint():
@@ -497,35 +585,66 @@ def _launch_allowed(start_sitl):
     return False
 
 
-def _pick_connection():
-    """Resolve (connection_string, start_sitl, baud) for the flight controller.
+def _link_candidates():
+    """Ordered links to try: real FCU first, then SITL.
 
-    The real FCU serial/COM link is the default. SITL is only used when asked
-    for explicitly via `--drone-link sitl`/`sitl-launch`, `--start-sitl`, or an
-    explicit `--drone_connection`.
+    Returns ``[(connection_string, start_sitl, kind)]`` where kind is
+    ``"real"`` or ``"sitl"``. The real FCU is always tried first, because
+    flying is the whole point and a silently substituted simulator is the wrong
+    default on a bench with a drone attached. SITL is the fallback for when no
+    FCU is there at all.
+
+    An explicit choice is honoured exactly, with no fallback: `--drone-link real`
+    means the operator asserted an FCU exists, and quietly connecting to a
+    simulator instead would hide a real hardware problem. `--drone-link sitl`
+    likewise means "I mean the simulator".
     """
     sitl_endpoint = _sitl_endpoint()
 
+    if args.drone_connection is not None:
+        kind = "sitl" if _is_sitl_link(args.drone_connection) else "real"
+        return [(args.drone_connection, args.start_sitl, kind)]
+
     if args.drone_link == "real":
-        return args.drone_connection or _default_fcu_serial(), False, args.baud
+        port = _default_fcu_serial()
+        if port is None:
+            raise SystemExit(
+                "FATAL: --drone-link real was requested but no flight controller "
+                "was found on any serial port. Plug the FCU in and check that it "
+                "is powered, or use --drone-link auto to fall back to SITL."
+            )
+        return [(port, False, "real")]
 
     if args.drone_link in ("sitl", "sitl-launch"):
-        if args.drone_connection:
-            print(f"[LINK] --drone-connection overrides the SITL endpoint: "
-                  f"{args.drone_connection}")
-            return args.drone_connection, False, args.baud
         start_sitl = _launch_allowed(args.drone_link == "sitl-launch")
-        return sitl_endpoint, start_sitl, args.baud
-
-    if args.drone_connection is not None:
-        return args.drone_connection, args.start_sitl, args.baud
+        return [(sitl_endpoint, start_sitl, "sitl")]
 
     if args.start_sitl:
-        return sitl_endpoint, _launch_allowed(True), args.baud
+        return [(sitl_endpoint, _launch_allowed(True), "sitl")]
 
-    connection = _default_fcu_serial()
-    print(f"[LINK] auto-detected real FCU on {connection}")
-    return connection, False, args.baud
+    # auto: real FCU first, SITL second.
+    candidates = []
+    port = _default_fcu_serial()
+    if port:
+        candidates.append((port, False, "real"))
+    candidates.append((sitl_endpoint, False, "sitl"))
+    return candidates
+
+
+def _pick_connection():
+    """Resolve (connection_string, start_sitl, baud) for the flight controller.
+
+    The first candidate, so the mode and startup summary can be decided before
+    anything expensive loads. The remaining candidates stay available through
+    ``_link_candidates`` for the fallback when this one turns out to be absent.
+    """
+    candidates = _link_candidates()
+    connection_string, start_sitl, kind = candidates[0]
+    if kind == "real":
+        print(f"[LINK] auto-detected real FCU on {connection_string}")
+        if len(candidates) > 1:
+            print("[LINK] will fall back to SITL if the FCU is not there")
+    return connection_string, start_sitl, args.baud
 
 
 def _local_ipv4_addresses():
@@ -657,8 +776,10 @@ def _resolve_sgc_host() -> str:
     return chosen
 
 
-def _describe_link(connection_string, baud, start_sitl=False):
-    if _is_sitl_link(connection_string):
+def _describe_link(connection_string, baud, start_sitl=False, kind=None):
+    if kind == "real":
+        return f"real FCU on {connection_string} @ {baud} baud"
+    if kind == "sitl" or _is_sitl_link(connection_string):
         if start_sitl:
             return f"SITL launched in WSL ({connection_string})"
         return f"SITL over UDP ({connection_string})"
@@ -676,6 +797,86 @@ def _print_startup_summary(sgc_host, connection_string, baud, start_sitl=False):
     print(f"  model         : {args.model_path}")
     print("  camera, lidar and the model load next (a few seconds).")
     print()
+
+
+def _connect_with_fallback(sgc_host):
+    """Connect to the flight controller, preferring a real FCU over SITL.
+
+    Tries each candidate from ``_link_candidates`` in order and returns the one
+    that worked. Falling through to SITL is deliberate and is always announced,
+    because a run that quietly attaches to a simulator instead of the drone is
+    how a bench test turns into a bad surprise.
+
+    Returns the connected endpoint. Exits only when every candidate fails.
+    """
+    global _sitl_started
+
+    candidates = _link_candidates()
+    failures = []
+
+    for index, (connection_string, start_sitl, kind) in enumerate(candidates):
+        if index:
+            print()
+            print("=" * 68)
+            print("[LINK] no flight controller on the previous link - falling back")
+            print("=" * 68)
+        label = _describe_link(connection_string, args.baud, start_sitl, kind)
+        print(f"drone link: {connection_string} (baud {args.baud}) [{kind}]")
+
+        if control.connect_drone(connection_string, start_sitl=start_sitl,
+                                 baud=args.baud):
+            if kind == "sitl":
+                _sitl_started = bool(start_sitl)
+                if args.mode != "sitl":
+                    print(f"[LINK] connected to SITL - running in sitl mode "
+                          f"(was --mode {args.mode})")
+                    args.mode = "sitl"
+                print(f"[LINK] connected to {label}")
+                _remap_sgc_host_for_sitl(sgc_host)
+            else:
+                if args.mode != "flight":
+                    print(f"[LINK] connected to a real FCU - running in flight "
+                          f"mode (was --mode {args.mode})")
+                    args.mode = "flight"
+                print(f"[LINK] connected to {label}")
+            return connection_string
+
+        failures.append(label)
+        print(f"[LINK] no vehicle on {label}")
+
+    print()
+    print("FATAL: could not connect to a flight controller. Tried:")
+    for label in failures:
+        print(f"  - {label}")
+    print()
+    print("For a real FCU: power it up, plug in the USB/serial cable, and check")
+    print("the baud rate matches. For the simulator: start ArduPilot SITL and")
+    print("check the endpoint in run_config.json under \"sitl_connection\".")
+    sys.exit(1)
+
+
+def _remap_sgc_host_for_sitl(sgc_host):
+    """Point SGC output at this machine when the link turns out to be SITL.
+
+    A real drone and a laptop-hosted SITL are rarely on the same network, so the
+    SGC address resolved before the fallback is usually unreachable now. This
+    only has an effect when the SGC host was never given explicitly.
+    """
+    if _SGC_HOST_FROM_CLI:
+        return
+    local = _local_ipv4_addresses()
+    if not local or sgc_host in local:
+        return
+    print(f"[LINK] SITL is on this machine - sending detections to {local[0]} "
+          f"instead of {sgc_host}")
+    _remember_sgc_host_quietly(local[0])
+
+
+def _remember_sgc_host_quietly(host):
+    try:
+        save_default("sgc_host", host)
+    except Exception:
+        pass
 
 
 def setup():
@@ -715,15 +916,21 @@ def setup():
     set_detector_ref(detector)
 
     print("connecting to drone")
-    print(f"drone link: {connection_string} (baud {baud})")
 
-    if not control.connect_drone(connection_string, start_sitl=start_sitl, baud=baud):
-        print("FATAL: Could not connect to vehicle. Ensure SITL is running or the FCU is connected.")
-        sys.exit(1)
+    connection_string = _connect_with_fallback(sgc_host)
     control.set_flight_altitude(MAX_ALT)
+    # Home altitude has to come from a real position fix. The cache starts at
+    # 0.0 and GLOBAL_POSITION_INT may not have arrived yet, and a home of 0.0
+    # on a field above sea level poisons every relative altitude for the run:
+    # disarm is refused as "airborne at 584m" and the follow altitude gate
+    # passes while still on the ground.
+    if not drone.wait_for_position(timeout=8.0):
+        print("[LINK] WARNING: no GPS position from the FCU yet - home altitude "
+              "assumed 0.0m; altitude gates (disarm, follow) may be wrong")
     _, _, _home_alt = drone.get_position()
     modules.app_config.HOME_ALT = _home_alt
     print(f"Vehicle connected (home altitude {_home_alt:.1f}m)")
+    _print_servo_summary()
 
     from jetson.streaming.rtsp_server import RTSPServer
     from jetson.communication.detection_sender import Streamer
@@ -844,6 +1051,99 @@ def _trigger_panic_rtl(source: str) -> None:
     _failsafe_rtl(f"Panic RTL from {source}")
 
 
+def resolve_servo_channel(requested=None):
+    """The channel a servo command should address, or None if undetermined.
+
+    ``None`` means no channel was given anywhere, so the answer comes from what
+    the autopilot reported at connect time.
+    """
+    return servo_channels.resolve_channel(
+        requested,
+        detected=drone.detect_servo_channel(),
+    )
+
+
+def _print_servo_summary():
+    """Report the servo wiring once, at connect time.
+
+    Silence here was the old failure mode: the channel was 8 because 8 was
+    written down, so nothing ever said whether a gimbal was found at all.
+
+    ``SERVOx_FUNCTION`` arrives on the parameter thread, which may still be
+    running here, so an unloaded cache is reported as pending rather than as a
+    failure - otherwise this prints "no gimbal" seconds before discovery finds
+    one.
+    """
+    if args.servo_channel is not None:
+        print(f"[SERVO] Channel {args.servo_channel} pinned by --servo-channel")
+        return
+
+    info = drone.get_servo_channel_info()
+    if not info.get("params_loaded"):
+        print("[SERVO] Reading SERVOx_FUNCTION from the autopilot - the detected "
+              "channel will be reported once the parameter fetch completes")
+        return
+
+    detected = drone.detect_servo_channel()
+    if detected is None:
+        print("[SERVO] No gimbal channel could be detected - servo commands will be "
+              "refused until a channel is given (--servo-channel) or "
+              "SERVOx_FUNCTION is configured")
+    else:
+        print(f"[SERVO] Gimbal channel {detected} "
+              f"({drone.get_servo_channels().get(detected, 'function unknown')})")
+
+
+_servo_job_lock = threading.Lock()
+_servo_pending = None
+_servo_worker_running = False
+
+
+def _queue_servo_command(channel, pulse, source):
+    """Run a servo command off the render thread; the newest command wins.
+
+    ``send_servo`` blocks for up to ~4s - up to 2s for the DO_SET_SERVO ACK
+    plus 2s reading the PWM back - and the SGC streams gimbal updates, so doing
+    that inline froze the camera window and stalled detection for the whole
+    wait. One worker keeps sends ordered, and the single pending slot coalesces
+    a burst: a slow vehicle receives the newest target instead of a backlog of
+    stale pulses.
+    """
+    global _servo_pending, _servo_worker_running
+    with _servo_job_lock:
+        _servo_pending = (channel, pulse, source)
+        if _servo_worker_running:
+            return
+        _servo_worker_running = True
+    threading.Thread(target=_servo_worker, daemon=True, name="servo-cmd").start()
+
+
+def _servo_worker():
+    global _servo_pending, _servo_worker_running
+    while True:
+        with _servo_job_lock:
+            job = _servo_pending
+            _servo_pending = None
+            if job is None:
+                _servo_worker_running = False
+                return
+        channel, pulse, source = job
+        try:
+            drone.send_servo(channel=channel, pulse=pulse, source=source,
+                             allow_rc_override=args.allow_rc_override)
+            print(f"[SGC] Servo: ch{channel} -> {pulse}us ({source})")
+        except (TypeError, ValueError) as exc:
+            msg = f"Servo refused: {exc}"
+            print(f"[SGC] {msg}")
+            set_hud_status(msg, (0, 0, 255), 4.0)
+        except Exception as exc:
+            # The worker must outlive a failed write: the next gimbal command
+            # still has to go out.
+            msg = f"Servo command failed: {exc}"
+            print(f"[SGC] {msg}")
+            set_hud_status(msg, (0, 0, 255), 4.0)
+
+
 def _handle_sgc_command(cmd, detections):
     global _following
     if cmd.command_type == "select_target":
@@ -910,20 +1210,31 @@ def _handle_sgc_command(cmd, detections):
         _trigger_panic_rtl("SGC command")
     elif cmd.command_type == "servo":
         try:
-            channel = int(cmd.channel)
-            if not 1 <= channel <= 16:
-                raise ValueError(f"channel {channel} outside 1-16")
+            # A CLI --servo-channel overrides the SGC, so an operator can pin
+            # the gimbal when the SGC's own wiring knowledge is wrong. With
+            # neither, the channel comes from what the autopilot reported.
+            requested = cmd.channel
+            if args.servo_channel is not None:
+                requested = int(args.servo_channel)
+            # Recorded so the ground station can tell an operator override from
+            # our own detection in telemetry.servo.source.
+            source = "explicit" if requested is not None else "auto"
+            channel = resolve_servo_channel(requested)
             if cmd.pulse is not None:
-                pulse = int(cmd.pulse)
+                pulse = cmd.pulse
             elif cmd.angle is not None:
-                pulse = int(1500 + float(cmd.angle) * (500.0 / 45.0))
+                pulse = servo_channels.pulse_from_angle(cmd.angle)
             else:
                 pulse = 1500
-            # Clamp either input: a raw pulse from the SGC must not be able to
-            # drive a real servo past its travel.
-            pulse = max(1000, min(2000, pulse))
-            drone.send_servo(channel=channel, pulse=pulse)
-            print(f"[SGC] Servo: ch{channel} -> {pulse}us")
+            pulse = servo_channels.clamp_pulse(pulse)
+            if channel is None:
+                raise ValueError(
+                    "no gimbal output detected - pass channel, or set "
+                    "SERVOx_FUNCTION on the autopilot"
+                )
+            # Validation stays inline so a refusal is reported instantly; only
+            # the send blocks, and it runs on the servo worker.
+            _queue_servo_command(channel, pulse, source)
         except (TypeError, ValueError) as exc:
             msg = f"Servo refused: {exc}"
             print(f"[SGC] {msg}")
@@ -1043,7 +1354,15 @@ def _build_telemetry() -> TelemetryData:
     except Exception:
         pass
 
-    return TelemetryData(altitude=alt, battery=bat, lat=lat, lon=lon, ekf_ok=ekf, armed=armed)
+    # Servo state is filled in unconditionally: a ground station has to be able
+    # to tell "no gimbal configured" from "the packet did not mention it".
+    try:
+        servo = drone.get_servo_status()
+    except Exception:
+        servo = None
+
+    return TelemetryData(altitude=alt, battery=bat, lat=lat, lon=lon, ekf_ok=ekf,
+                         armed=armed, servo=servo)
 
 
 def _make_splash(text: str) -> np.ndarray:
@@ -1200,6 +1519,8 @@ def main_loop():
     tracking_session.reset_loss_state()
 
     while True:
+
+        _check_link_health()
 
         kb = _handle_keyboard()
         if kb == "quit":
@@ -1401,6 +1722,12 @@ def main_loop():
 def land():
     print("LANDING...")
     control.land()
+    # The mode is confirmed by now, so the vehicle finishes the landing on its
+    # own - release the link instead of leaving the port to process teardown.
+    try:
+        drone.disconnect()
+    except Exception:
+        pass
     if sgc_receiver is not None:
         sgc_receiver.stop()
     if streamer is not None:
@@ -1420,6 +1747,10 @@ def _failsafe_rtl(reason):
         drone.send_rtl()
     except Exception as exc:
         print(f"[FAILSAFE] RTL command failed: {exc}")
+    try:
+        drone.disconnect()
+    except Exception:
+        pass
     try:
         if sgc_receiver is not None:
             sgc_receiver.stop()

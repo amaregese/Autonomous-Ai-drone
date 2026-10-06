@@ -6,6 +6,30 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
+# Keys published under ``telemetry.servo``. A ground station can bind to this
+# shape once and never see a missing field: everything not known is null or
+# false rather than absent.
+SERVO_TELEMETRY_KEYS = (
+    "detected_channel",
+    "source",
+    "refused",
+    "refusal_reason",
+    "reported_pwm",
+    "limits_hit",
+)
+
+
+def empty_servo_status() -> dict:
+    """A complete servo status block that claims nothing."""
+    return {
+        "detected_channel": None,
+        "source": None,
+        "refused": False,
+        "refusal_reason": None,
+        "reported_pwm": None,
+        "limits_hit": False,
+    }
+
 
 class TrackingState(Enum):
     IDLE = "idle"
@@ -251,6 +275,10 @@ class TelemetryData:
     lon: float = 0.0
     ekf_ok: bool = True
     armed: bool = False
+    # Servo/gimbal state, reported because the ground station has no other way
+    # to learn it: commands arrive over UDP and are never acknowledged. Every
+    # key is always present so a display can bind to the shape once.
+    servo: Optional[dict] = None
 
     def to_dict(self) -> dict:
         return {
@@ -260,6 +288,7 @@ class TelemetryData:
             "lon": round(self.lon, 6),
             "ekf_ok": self.ekf_ok,
             "armed": self.armed,
+            "servo": {**empty_servo_status(), **(self.servo or {})},
         }
 
     @classmethod
@@ -271,6 +300,7 @@ class TelemetryData:
             lon=d.get("lon", 0.0),
             ekf_ok=d.get("ekf_ok", True),
             armed=d.get("armed", False),
+            servo=d.get("servo"),
         )
 
 

@@ -410,8 +410,8 @@ Autonomous-AI-Drone/
 │   ├── communication/           # detection_sender.py, sgc_receiver.py
 │   └── streaming/               # rtsp_server.py
 ├── shared/                      # detection_models.py, detection_transport.py
-├── tools/                       # 10 calibration / benchmark / diagnostic scripts
-├── benchmarks/
+├── tools/                       # dev scripts — LOCAL ONLY, not committed (except send_sgc_command.py)
+├── benchmarks/                  # benchmark assets — LOCAL ONLY, not committed
 │   ├── camera_calibration/      # checkerboard target
 │   └── distance/                # manifest.json (calibration + empty dataset)
 ```
@@ -438,8 +438,11 @@ non-`README.md` Markdown files, 12 `__pycache__` directories, the stale
 `shared/__pycache__/sgc_config.cpython-312.pyc` bytecode, and the `.idea/` + `.vtcode/`
 tooling. The only tracked file still matched by an ignore rule is the model, by design.
 
-`tests/` was removed in that trim and has since been **restored and extended**: it now holds
-10 tracked files covering servo channel planning, servo MAVLink routing, link selection, the
+`tests/`, `tools/` (except `send_sgc_command.py`) and `benchmarks/` are **local-only**: they
+exist on the dev machine but are gitignored, so they are never committed and never reach a
+clone or the Jetson — see
+[Repository hygiene and Git policy](#repository-hygiene-and-git-policy). `tests/` holds 9 test
+modules (10 files) covering servo channel planning, servo MAVLink routing, link selection, the
 SGC receiver and app config — see [Testing](#testing).
 
 **`modules/navigation.py`, `modules/vision.py` and `modules/vision_utils/` were kept even
@@ -1440,7 +1443,7 @@ python -m pytest -q
 
 Current result: **355 passed, 315 subtests passed**.
 
-Tracked test files:
+Test files (local only — gitignored, never committed):
 
 | File | Covers |
 | --- | --- |
@@ -1939,6 +1942,19 @@ temporal-stability evidence for this estimator at all.**
 ## Repository hygiene and Git policy
 
 Remote: `https://github.com/amaregese/Autonomous-Ai-drone.git`
+
+### `tests/`, `tools/`, `benchmarks/` — local only, never committed
+
+`.gitignore` carries `tests/`, `benchmarks/` and `tools/*` (with `!tools/send_sgc_command.py`).
+These exist on the dev machine only: `git add` will not stage them, so commits and pushes carry
+runtime files alone and a clone or the Jetson never receives them. They are deliberately kept on
+disk, not deleted — the suite still runs with `python -m pytest -q` locally. This is an
+exclusion from *version control*, not a removal from the tree; the paths remain in git history
+from before the rule.
+
+The one exception is `tools/send_sgc_command.py`: it stays tracked because it is the documented
+field CLI for issuing SGC commands from a laptop
+([SGC ground-station link](#sgc-ground-station-link)).
 
 ### `YOLO/yolo11n.pt` is tracked — deliberately
 

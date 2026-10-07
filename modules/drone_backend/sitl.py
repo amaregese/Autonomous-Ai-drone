@@ -1576,9 +1576,19 @@ def get_battery_level():
 
 
 def send_movement_command_YAW(angle):
+    """Store the yaw rate the next movement/hold message will carry.
+
+    Sign convention: above this boundary positive means "turn right" (the
+    target sits right of the frame centre), which is what the follow
+    controller and the HUD display. Flight testing on the real vehicle
+    showed the opposite response - a positive command with the person on
+    the right turned the nose left - so the backend negates the command
+    here, at the MAVLink boundary, and every layer above keeps the natural
+    sign.
+    """
     global _last_yaw_rate_rad_s
     with _state_lock:
-        _last_yaw_rate_rad_s = math.radians(angle)
+        _last_yaw_rate_rad_s = math.radians(-angle)
 
 
 def send_servo(channel=None, pulse=1500, verify=True, source=None, allow_rc_override=False):

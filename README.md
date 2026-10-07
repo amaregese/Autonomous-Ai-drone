@@ -139,7 +139,7 @@ FCU. Because the SGC laptop's IP changes between setups, the app also asks for i
 press ENTER to keep the last known address.
 
 Flight-safety preconditions are enforced before takeoff in `_preflight_follow`
-(`autonomous_drone_main.py:195`): minimum altitude 2.5 m (below the 3 m cruise/takeoff
+(`autonomous_drone_main.py:197`): minimum altitude 2.5 m (below the 3 m cruise/takeoff
 altitude, so a follow is never refused for being at its own configured height), minimum
 battery 20 %, minimum GPS fix type 3, and FCU mode must be `GUIDED`.
 
@@ -149,7 +149,7 @@ battery 20 %, minimum GPS fix type 3, and FCU mode must be `GUIDED`.
 python -m pytest -q
 ```
 
-Current result: **355 passed, 315 subtests passed** (see [Testing](#testing)).
+Current result: **368 passed, 315 subtests passed** (see [Testing](#testing)).
 
 ---
 
@@ -465,32 +465,32 @@ a deleted suite; see [Testing](#testing).
 
 | Line | Symbol | Role |
 | --- | --- | --- |
-| 177 | `_reset_lost_state` | clears tracking-loss state after a successful follow |
-| 183 | `_preflight_follow` | battery / GPS / mode / altitude gates before takeoff |
-| 233 | `_airframe_readiness_problems` | GPS-fix / EKF gates shared by ARM and TAKEOFF |
-| 253 | `_run_flight_command` | runs a blocking vehicle call on the `flight-cmd` worker thread |
-| 295 | `_handle_arm_button` | on-screen ARM button |
-| 317 | `_handle_takeoff_button` | on-screen takeoff button (requires an armed vehicle) |
-| 344 | `_handle_land_button` | on-screen LAND button (stops follow, keeps the app running) |
-| 360 | `_ground_altitude` | altitude above home, used by the disarm guard |
-| 368 | `_handle_disarm_action` | disarm (refused above `DISARM_MAX_ALT`) — `D` key / SGC `disarm` |
-| 407 | `_on_mouse` | click-to-select target, ARM, TAKEOFF and LAND buttons |
-| 418 | `_serial_heartbeat_ok` | serial heartbeat watchdog |
-| 440 | `_detect_serial_ports` | COM-port enumeration |
-| 459 | `_default_fcu_serial` | default FCU port |
-| 542 | `_pick_connection` | connection-string selection |
-| 723 | `setup` | camera, detector, estimator, SGC, streaming initialisation |
-| 885 | `_handle_sgc_command` | inbound SGC command handling |
-| 975 | `_handle_keyboard` | `ESC` deselect, `SPACE` follow, `R` reset, `H` HUD, `L` land, `D` disarm, `P` panic RTL, `Q` quit |
-| 1045 | `_update_hud_state` | |
-| 1057 | `_build_telemetry` | builds `TelemetryData` for the SGC payload |
-| 1094 | `_selected_distance` | current target distance for the HUD |
-| 1116 | `_console_status` | console status line |
-| 1173 | `_follow_movement_dict` | follow command → dict for the HUD |
-| 1206 | `_refresh_follow_estimator` | re-creates the estimator when intrinsics change |
-| 1232 | `main_loop` | the per-frame loop (drains the SGC queue, `panic_rtl` first) |
-| 1422 | `land` | |
-| 1437 | `_failsafe_rtl` | RTL failsafe |
+| 191 | `_reset_lost_state` | clears tracking-loss state after a successful follow |
+| 197 | `_preflight_follow` | battery / GPS / mode / altitude gates before takeoff |
+| 247 | `_airframe_readiness_problems` | telemetry wait shared by ARM and TAKEOFF (no GPS/EKF state gate) |
+| 290 | `_run_flight_command` | runs a blocking vehicle call on the `flight-cmd` worker thread |
+| 332 | `_handle_arm_button` | on-screen ARM button |
+| 354 | `_handle_takeoff_button` | on-screen takeoff button (requires an armed vehicle) |
+| 381 | `_handle_land_button` | on-screen LAND button (stops follow, keeps the app running) |
+| 397 | `_ground_altitude` | altitude above home, used by the disarm guard |
+| 405 | `_handle_disarm_action` | disarm (refused above `DISARM_MAX_ALT`) — `D` key / SGC `disarm` |
+| 444 | `_on_mouse` | click-to-select target, ARM, TAKEOFF and LAND buttons |
+| 468 | `_serial_heartbeat_ok` | serial heartbeat watchdog |
+| 493 | `_detect_serial_ports` | COM-port enumeration |
+| 532 | `_default_fcu_serial` | default FCU port |
+| 622 | `_pick_connection` | connection-string selection |
+| 870 | `setup` | camera, detector, estimator, SGC, streaming initialisation |
+| 1135 | `_handle_sgc_command` | inbound SGC command handling |
+| 1236 | `_handle_keyboard` | `ESC` deselect, `SPACE` follow, `R` reset, `H` HUD, `L` land, `D` disarm, `P` panic RTL, `Q` quit |
+| 1306 | `_update_hud_state` | |
+| 1318 | `_build_telemetry` | builds `TelemetryData` for the SGC payload |
+| 1363 | `_selected_distance` | current target distance for the HUD |
+| 1385 | `_console_status` | console status line |
+| 1444 | `_follow_movement_dict` | follow command → dict for the HUD |
+| 1477 | `_refresh_follow_estimator` | re-creates the estimator when intrinsics change |
+| 1503 | `main_loop` | the per-frame loop (drains the SGC queue, `panic_rtl` first) |
+| 1710 | `land` | |
+| 1731 | `_failsafe_rtl` | RTL failsafe |
 
 ### Data flow
 
@@ -759,7 +759,7 @@ as `[SGC] ...`.
 | `deselect_target` | — | clears the selection (keeps the lost banner state) |
 | `follow_start` | same as `select_target`, `bbox` optional | runs the takeoff preflight, then starts person-follow |
 | `follow_stop` | — | stops following and holds position |
-| `arm` | — | arms the vehicle in GUIDED (checks GPS fix ≥ 3 and EKF); same as the on-screen ARM button |
+| `arm` | — | arms the vehicle in GUIDED with a force-arm (`MAV_CMD_COMPONENT_ARM_DISARM`, `param2=21196`), so the FCU's pre-arm checks are skipped by design — validate them in Mission Planner first; same as the on-screen ARM button |
 | `takeoff` | — | climbs to `MAX_ALT` — **refused unless the vehicle is already armed**, so send `arm` first |
 | `land` | — | stops following, clears the target and lands; the app keeps running |
 | `disarm` | — | disarms — **refused above 0.5 m altitude**, so send `land` first |
@@ -1182,8 +1182,11 @@ so they occupy `x = w-398 … w-8` and never reach the centred mode pill (which 
 Clicking a button calls `_handle_arm_button` / `_handle_takeoff_button` / `_handle_land_button`;
 the hit tests use `get_arm_button_rect()` / `get_takeoff_button_rect()` / `get_land_button_rect()`.
 **Takeoff is refused unless `drone.is_armed()`** — the message is
-`"Takeoff refused: vehicle is not armed — press ARM first"`. Arming itself checks GPS fix ≥ 3 and
-EKF convergence, and the three actions call `control.arm()`, `control.takeoff(MAX_ALT)` and
+`"Takeoff refused: vehicle is not armed — press ARM first"`. Arming no longer gates on GPS fix or
+EKF: `_airframe_readiness_problems()` only waits up to 8 s for GPS/EKF *telemetry* (proof the link
+is up, not proof of a fix), and `sitl.arm()` force-arms with `param2=21196`, skipping the FCU's
+pre-arm checks by design — the operator validates those in Mission Planner first. The three
+actions call `control.arm()`, `control.takeoff(MAX_ALT)` and
 `control.land()` (the old combined `control.arm_and_takeoff` is kept for the mock/backend API).
 
 **The vehicle calls run off the render thread.** Arming, the takeoff climb and disarming all block
@@ -1195,7 +1198,7 @@ on a `flight-cmd` worker thread and reports the result through the HUD:
 
 | Phase | Thread | What the operator sees |
 | --- | --- | --- |
-| refusal checks (armed, GPS, EKF, altitude) | main | immediate red/amber HUD message, nothing sent |
+| refusal checks (arm state, telemetry, altitude) | main | immediate red/amber HUD message, nothing sent |
 | `control.arm()` / `takeoff()` / `land()` / `disarm()` | `flight-cmd` worker | cyan `Taking off to 5m...` while it runs, then green success or red failure |
 | FCU confirmation | MAVLink listener thread | unchanged — it always ran separately |
 
@@ -1282,6 +1285,17 @@ Takeoff did not settle at 5.0 m after 60s (at 8.1 m, 592.2 m AMSL). (status: Arm
 > instance to validate flight behaviour. The app-side guarantee does not depend on that tuning: it
 > either holds the altitude or says it did not.
 
+### Yaw command sign
+
+The follow controller's yaw convention is **positive = turn right** (the target sits right of the
+frame centre): `person_follow.py` computes `yaw_cmd` from `x_delta`, the HUD shows it as `YAW +x.x`,
+and the SGC telemetry carries the same sign. The vehicle flies the opposite way to the MAVLink
+yaw-rate sign on the wire — observed in flight testing: a positive command with the person on the
+right turned the nose left. `sitl.send_movement_command_YAW()` therefore negates the command at the
+MAVLink boundary (`radians(-angle)`), so the flip happens in exactly one place and every layer above
+keeps the natural sign. The lateral velocity `vy` deliberately shares `x_delta` **without** a flip:
+only the yaw response was reversed in flight testing, so only the yaw command is inverted.
+
 ### Flight-mode changes are confirmed, not assumed
 
 `_set_mode()` used to send the mode, call `recv_match()` to "wait" for the reply, and then cache the
@@ -1312,10 +1326,11 @@ Vehicle rejected the request to enter GUIDED (result 1)
 ### ARMING_CHECKS
 
 `connect_drone()` reads `ARMING_CHECKS` on a daemon thread and prints a `[SAFETY]` warning when it
-is `0` (all arming checks disabled) or `1`. The Python-side GPS/EKF gates in the UI are **not** a
-substitute for the autopilot's own arming checks — those are the last line of defence on a real
-vehicle. `ARMING_CHECKS=0` means nothing verifies throttle-at-zero, GPS, EKF or compass before the
-motors spin.
+is `0` (all arming checks disabled) or `1`. The app does not stand in for those checks either: it
+force-arms (`param2=21196`), which skips the autopilot's pre-arm checks whether `ARMING_CHECKS` is
+on or off. Checking throttle-at-zero, GPS, EKF and compass is therefore the operator's job in
+Mission Planner before pressing ARM; `ARMING_CHECKS=0` additionally removes the in-vehicle safety
+net for anyone arming outside this app.
 
 `_handle_land_button()` stops person-following, clears the target selection and then calls
 `control.land()` — the app keeps running, so the camera, tracker, SGC link and telemetry stay up
@@ -1443,13 +1458,15 @@ for latency; lower is faster. On Jetson the intended path is hardware H.264 via 
 python -m pytest -q
 ```
 
-Current result: **355 passed, 315 subtests passed**.
+Current result: **368 passed, 315 subtests passed**.
 
 Test files (local only — gitignored, never committed):
 
 | File | Covers |
 | --- | --- |
 | `tests/test_servo_mavlink.py` | servo command routing, discovery-cache refresh, consent gates, RC-override watchdog, pulse verification |
+| `tests/test_arm_force.py` | force-arm wire bytes (`param2=21196`), GUIDED gate, arm-state wait error text |
+| `tests/test_yaw_sign.py` | negated yaw rate at the MAVLink boundary (flight-tested sign) |
 | `tests/test_servo_channels.py` | `plan_drive`, `parse_servo_functions`, gimbal-channel picking, drive constants |
 | `tests/test_link_selection.py` | `--drone-link` precedence, real-FCU fallback, endpoint recognition |
 | `tests/test_sgc_receiver.py` | SGC command parsing, queueing, validation, `panic_rtl` priority |

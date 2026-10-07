@@ -245,13 +245,14 @@ def _preflight_follow():
 
 
 def _airframe_readiness_problems():
-    """Checks the FCU itself makes before arming or taking off."""
-    # GPS fix and EKF convergence are deliberately NOT checked here any more:
-    # arming and takeoff are allowed without a fix (bench / indoor use), per
-    # operator request. The FCU's own arming checks (ARMING_GPS_CHECK etc.)
-    # still apply and would surface as "Arming failed: ...".
-    # The wait stays: a cold or absent telemetry cache means the link itself is
-    # not up, which is a different problem from "no fix yet".
+    """Telemetry gate shared by ARM and TAKEOFF - not a fix/EKF check."""
+    # GPS fix and EKF convergence are deliberately NOT checked here: arming
+    # and takeoff are allowed without a fix (bench / indoor use), per
+    # operator request, and sitl.arm() force-arms (param2=21196), so the FCU's
+    # own pre-arm checks are skipped too - the operator validates them in
+    # Mission Planner. What stays is the wait: a cold or absent telemetry
+    # cache means the link itself is not up, which is a different problem
+    # from "no fix yet".
     if not drone.wait_for_navigation_telemetry(timeout=8.0):
         return ["no GPS/EKF telemetry from the FCU yet"]
     return []

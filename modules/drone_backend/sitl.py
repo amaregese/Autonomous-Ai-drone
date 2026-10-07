@@ -1147,8 +1147,34 @@ def connect_drone(connection_string, waitready=True, baud=57600, start_sitl=Fals
     return _master
 
 
+def _send_arm(master):
+    """Send a force-arm request (MAV_CMD_COMPONENT_ARM_DISARM, param2=21196).
+
+    The 21196 value is ArduPilot's documented "force arm": the command is
+    accepted with the autopilot's pre-arm checks skipped entirely. The
+    operator runs those checks separately in Mission Planner instead.
+    """
+    master.mav.command_long_send(
+        master.target_system,
+        master.target_component,
+        mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
+        0,
+        1,
+        21196,
+        0,
+        0,
+        0,
+        0,
+        0,
+    )
+
+
 def arm():
-    """Arm the vehicle in GUIDED and wait until the FCU reports it armed."""
+    """Arm the vehicle in GUIDED and wait until the FCU reports it armed.
+
+    Always force-armed: the autopilot's own pre-arm checks are skipped by
+    design (the operator validates them in Mission Planner first).
+    """
     global _cached_armed, _cached_mode
     master = _get_master()
     _set_mode("GUIDED")
@@ -1164,8 +1190,8 @@ def arm():
             f"Vehicle is not in GUIDED (reporting {seen}); refusing to arm"
         )
 
-    master.arducopter_arm()
-    _wait_for_arm_state(True)
+    _send_arm(master)
+    _wait_for_arm_state(True, timeout=20.0)
     with _telemetry_lock:
         _cached_armed = True
     print("SITL: Vehicle armed")

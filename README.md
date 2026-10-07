@@ -770,7 +770,9 @@ Minimum payloads:
 
 ```json
 {"type": "arm"}
-{"type": "takeoff"}
+{"type": "takeoff"
+  
+}
 {"type": "land"}
 {"type": "disarm"}
 {"type": "panic_rtl"}

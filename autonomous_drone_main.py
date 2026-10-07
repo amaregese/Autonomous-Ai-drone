@@ -246,27 +246,15 @@ def _preflight_follow():
 
 def _airframe_readiness_problems():
     """Checks the FCU itself makes before arming or taking off."""
-    # These checks read the telemetry listener's cache, which is still cold for
-    # the first second or so after connect. A cold cache reads as "GPS fix 0/3;
-    # EKF not converged" and used to refuse an ARM on a vehicle that was
-    # reporting fix 6 and a converged EKF one click later. Wait for the first
-    # GPS/EKF reports before judging them, so an empty cache is never mistaken
-    # for a broken airframe.
+    # GPS fix and EKF convergence are deliberately NOT checked here any more:
+    # arming and takeoff are allowed without a fix (bench / indoor use), per
+    # operator request. The FCU's own arming checks (ARMING_GPS_CHECK etc.)
+    # still apply and would surface as "Arming failed: ...".
+    # The wait stays: a cold or absent telemetry cache means the link itself is
+    # not up, which is a different problem from "no fix yet".
     if not drone.wait_for_navigation_telemetry(timeout=8.0):
         return ["no GPS/EKF telemetry from the FCU yet"]
-
-    problems = []
-    try:
-        if drone.get_gps_fix_type() < MIN_FOLLOW_GPS_FIX:
-            problems.append(f"GPS fix {drone.get_gps_fix_type()}/3")
-    except Exception:
-        problems.append("cannot read GPS fix")
-    try:
-        if not drone.is_ekf_ok():
-            problems.append("EKF not converged")
-    except Exception:
-        problems.append("cannot read EKF status")
-    return problems
+    return []
 
 
 LINK_WARN_SECONDS = 5.0

@@ -50,11 +50,12 @@ FOLLOW_ALTITUDE = 3.0
 # ALTITUDE_TOLERANCE: acceptable deviation around the desired follow altitude.
 ALTITUDE_TOLERANCE = 0.5
 
-# Preflight floor for starting a follow. This must sit below the altitude the
-# vehicle actually flies at (TAKEOFF_ALTITUDE / FOLLOW_ALTITUDE, both 3.0m) or
-# every follow_start would refuse with "altitude 3.0m below 5.0m". The floor is
-# still comfortably above the 0.5m on-the-ground check in _preflight_follow.
-MIN_FOLLOW_ALT = FOLLOW_ALTITUDE - ALTITUDE_TOLERANCE
+# Preflight floor for starting a follow: refuse below 2.0 m. Deliberately a
+# fixed floor well under the 3.0 m cruise/takeoff altitude, so the vehicle can
+# be commanded to follow while still climbing to or settling at its flight
+# altitude. It stays comfortably above the 0.5m on-the-ground check in
+# _preflight_follow.
+MIN_FOLLOW_ALT = 2.0
 MIN_FOLLOW_BATTERY = 20
 MIN_FOLLOW_GPS_FIX = 3
 MIN_FOLLOW_MODE = "GUIDED"

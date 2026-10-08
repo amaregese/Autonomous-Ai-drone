@@ -139,9 +139,9 @@ FCU. Because the SGC laptop's IP changes between setups, the app also asks for i
 press ENTER to keep the last known address.
 
 Flight-safety preconditions are enforced before takeoff in `_preflight_follow`
-(`autonomous_drone_main.py:197`): minimum altitude 2.5 m (below the 3 m cruise/takeoff
-altitude, so a follow is never refused for being at its own configured height), minimum
-battery 20 %, minimum GPS fix type 3, and FCU mode must be `GUIDED`.
+(`autonomous_drone_main.py:197`): minimum altitude 2.0 m (a fixed floor well below the 3 m
+cruise/takeoff altitude, so a follow is never refused for being at its own configured height),
+minimum battery 20 %, minimum GPS fix type 3, and FCU mode must be `GUIDED`.
 
 ### Test
 
@@ -149,7 +149,7 @@ battery 20 %, minimum GPS fix type 3, and FCU mode must be `GUIDED`.
 python -m pytest -q
 ```
 
-Current result: **368 passed, 315 subtests passed** (see [Testing](#testing)).
+Current result: **371 passed, 316 subtests passed** (see [Testing](#testing)).
 
 ---
 
@@ -192,7 +192,7 @@ The central configuration module. Two groups of constants live here.
 | `FOLLOW_LATERAL_GAIN` | 1.2 | |
 | `FOLLOW_TARGET_CLASS` | `"person"` | |
 | `FOLLOW_MAX_DETECTION_AGE_S` | 0.5 | stale-detection rejection |
-| `MIN_FOLLOW_ALT` / `MIN_FOLLOW_BATTERY` / `MIN_FOLLOW_GPS_FIX` / `MIN_FOLLOW_MODE` | 2.5 / 20 / 3 / `"GUIDED"` | preflight gates (`MIN_FOLLOW_ALT` = `FOLLOW_ALTITUDE - ALTITUDE_TOLERANCE`) |
+| `MIN_FOLLOW_ALT` / `MIN_FOLLOW_BATTERY` / `MIN_FOLLOW_GPS_FIX` / `MIN_FOLLOW_MODE` | 2.0 / 20 / 3 / `"GUIDED"` | preflight gates (`MIN_FOLLOW_ALT` is a fixed 2.0 m floor, below the 3.0 m flight altitude) |
 | `DISARM_MAX_ALT` | 0.5 | how far above home altitude the vehicle may be when it is disarmed |
 
 `OBJECT_HEIGHTS` maps each of the 80 COCO classes to an assumed real-world height in metres
@@ -1458,7 +1458,7 @@ for latency; lower is faster. On Jetson the intended path is hardware H.264 via 
 python -m pytest -q
 ```
 
-Current result: **368 passed, 315 subtests passed**.
+Current result: **371 passed, 316 subtests passed**.
 
 Test files (local only — gitignored, never committed):
 

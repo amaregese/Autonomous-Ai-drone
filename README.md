@@ -139,7 +139,7 @@ FCU. Because the SGC laptop's IP changes between setups, the app also asks for i
 press ENTER to keep the last known address.
 
 Flight-safety preconditions are enforced before takeoff in `_preflight_follow`
-(`autonomous_drone_main.py:197`): minimum altitude 2.0 m (a fixed floor well below the 3 m
+(`autonomous_drone_main.py:198`): minimum altitude 2.0 m (a fixed floor well below the 3 m
 cruise/takeoff altitude, so a follow is never refused for being at its own configured height),
 minimum battery 20 %, minimum GPS fix type 3, and FCU mode must be `GUIDED`.
 
@@ -149,7 +149,7 @@ minimum battery 20 %, minimum GPS fix type 3, and FCU mode must be `GUIDED`.
 python -m pytest -q
 ```
 
-Current result: **371 passed, 316 subtests passed** (see [Testing](#testing)).
+Current result: **395 passed, 319 subtests passed** (see [Testing](#testing)).
 
 ---
 
@@ -441,9 +441,9 @@ tooling. The only tracked file still matched by an ignore rule is the model, by 
 `tests/`, `tools/` (except `send_sgc_command.py`) and `benchmarks/` are **local-only**: they
 exist on the dev machine but are gitignored, so they are never committed and never reach a
 clone or the Jetson — see
-[Repository hygiene and Git policy](#repository-hygiene-and-git-policy). `tests/` holds 9 test
-modules (10 files) covering servo channel planning, servo MAVLink routing, link selection, the
-SGC receiver and app config — see [Testing](#testing).
+[Repository hygiene and Git policy](#repository-hygiene-and-git-policy). `tests/` holds 12 test
+modules (13 files) covering servo channel planning, servo MAVLink routing, link selection, the
+SGC receiver, force-arm/force-takeoff button behaviour and app config — see [Testing](#testing).
 
 **`modules/navigation.py`, `modules/vision.py` and `modules/vision_utils/` were kept even
 though nothing on the flight path imports them.** They are the reference implementation behind
@@ -451,7 +451,7 @@ the "Legacy bbox" benchmark column — `distance_estimator/evaluation.py:99` imp
 `FollowController` from them — so deleting them would make the distance benchmark
 unreproducible. See [Historical audit record](#historical-audit-record).
 
-**Automated regression coverage lives in `tests/`** — 355 tests, all passing
+**Automated regression coverage lives in `tests/`** — 395 tests, all passing
 (`python -m pytest -q`). The older 227/2 baseline and the two depth-laziness failures refer to
 a deleted suite; see [Testing](#testing).
 
@@ -465,32 +465,33 @@ a deleted suite; see [Testing](#testing).
 
 | Line | Symbol | Role |
 | --- | --- | --- |
-| 191 | `_reset_lost_state` | clears tracking-loss state after a successful follow |
-| 197 | `_preflight_follow` | battery / GPS / mode / altitude gates before takeoff |
-| 247 | `_airframe_readiness_problems` | telemetry wait shared by ARM and TAKEOFF (no GPS/EKF state gate) |
-| 290 | `_run_flight_command` | runs a blocking vehicle call on the `flight-cmd` worker thread |
-| 332 | `_handle_arm_button` | on-screen ARM button |
-| 354 | `_handle_takeoff_button` | on-screen takeoff button (requires an armed vehicle) |
-| 381 | `_handle_land_button` | on-screen LAND button (stops follow, keeps the app running) |
-| 397 | `_ground_altitude` | altitude above home, used by the disarm guard |
-| 405 | `_handle_disarm_action` | disarm (refused above `DISARM_MAX_ALT`) — `D` key / SGC `disarm` |
-| 444 | `_on_mouse` | click-to-select target, ARM, TAKEOFF and LAND buttons |
-| 468 | `_serial_heartbeat_ok` | serial heartbeat watchdog |
-| 493 | `_detect_serial_ports` | COM-port enumeration |
-| 532 | `_default_fcu_serial` | default FCU port |
-| 622 | `_pick_connection` | connection-string selection |
-| 870 | `setup` | camera, detector, estimator, SGC, streaming initialisation |
-| 1135 | `_handle_sgc_command` | inbound SGC command handling |
-| 1236 | `_handle_keyboard` | `ESC` deselect, `SPACE` follow, `R` reset, `H` HUD, `L` land, `D` disarm, `P` panic RTL, `Q` quit |
-| 1306 | `_update_hud_state` | |
-| 1318 | `_build_telemetry` | builds `TelemetryData` for the SGC payload |
-| 1363 | `_selected_distance` | current target distance for the HUD |
-| 1385 | `_console_status` | console status line |
-| 1444 | `_follow_movement_dict` | follow command → dict for the HUD |
-| 1477 | `_refresh_follow_estimator` | re-creates the estimator when intrinsics change |
-| 1503 | `main_loop` | the per-frame loop (drains the SGC queue, `panic_rtl` first) |
-| 1710 | `land` | |
-| 1731 | `_failsafe_rtl` | RTL failsafe |
+| 192 | `_reset_lost_state` | clears tracking-loss state after a successful follow |
+| 198 | `_preflight_follow` | battery / GPS / mode / altitude gates before takeoff |
+| 248 | `_airframe_readiness_problems` | telemetry wait shared by ARM and TAKEOFF (no GPS/EKF state gate) |
+| 292 | `_run_flight_command` | runs a blocking vehicle call on the `flight-cmd` worker thread |
+| 334 | `_handle_arm_button` | on-screen ARM button |
+| 356 | `_handle_takeoff_button` | on-screen takeoff button (requires an armed vehicle) |
+| 383 | `_handle_arm_takeoff_button` | one-click ARM & TAKEOFF button (arm, then climb) |
+| 419 | `_handle_land_button` | on-screen LAND button (stops follow, keeps the app running) |
+| 435 | `_ground_altitude` | altitude above home, used by the disarm guard |
+| 443 | `_handle_disarm_action` | disarm (refused above `DISARM_MAX_ALT`) — `D` key / SGC `disarm` |
+| 482 | `_on_mouse` | click-to-select target, ARM, TAKEOFF, LAND and ARM & TAKEOFF buttons |
+| 507 | `_serial_heartbeat_ok` | serial heartbeat watchdog |
+| 532 | `_detect_serial_ports` | COM-port enumeration |
+| 571 | `_default_fcu_serial` | default FCU port |
+| 661 | `_pick_connection` | connection-string selection |
+| 909 | `setup` | camera, detector, estimator, SGC, streaming initialisation |
+| 1174 | `_handle_sgc_command` | inbound SGC command handling |
+| 1281 | `_handle_keyboard` | `ESC` deselect, `SPACE` follow, `R` reset, `H` HUD, `L` land, `D` disarm, `P` panic RTL, `Q` quit |
+| 1351 | `_update_hud_state` | |
+| 1363 | `_build_telemetry` | builds `TelemetryData` for the SGC payload |
+| 1408 | `_selected_distance` | current target distance for the HUD |
+| 1430 | `_console_status` | console status line |
+| 1489 | `_follow_movement_dict` | follow command → dict for the HUD |
+| 1522 | `_refresh_follow_estimator` | re-creates the estimator when intrinsics change |
+| 1548 | `main_loop` | the per-frame loop (drains the SGC queue, `panic_rtl` first) |
+| 1755 | `land` | |
+| 1776 | `_failsafe_rtl` | RTL failsafe |
 
 ### Data flow
 
@@ -557,12 +558,12 @@ autonomous_drone_main.py
 | `config.py`, `types.py` | thresholds and the `Detection` dataclass |
 
 Failure behaviour matters for deployment: if the weights are missing, `model.py` returns
-`(None, [])`, `api.py:57-62` returns `False`, and `autonomous_drone_main.py:752` aborts
+`(None, [])`, `api.py:58-63` returns `False`, and `autonomous_drone_main.py:942` aborts
 **before** flight setup. A missing model file is therefore a hard startup failure, not a
 degraded mode.
 
 **Target selection** — `modules/tracking.py` provides `TrackingSession`; a mouse click
-selects a detection (`_on_mouse` at `autonomous_drone_main.py:407`), and the selection
+selects a detection (`_on_mouse` at `autonomous_drone_main.py:482`), and the selection
 persists across frames.
 
 ---
@@ -678,7 +679,7 @@ camera calibration values have not been changed.
 
 **Loss handling.** After `FOLLOW_TARGET_LOSS_TIMEOUT_S` (10 s) the configured loss action
 fires. `FOLLOW_RTL_ON_LOSS` is `False` by default, so the default is a non-RTL loss action;
-`_failsafe_rtl` at `autonomous_drone_main.py:1437` is the separate RTL path.
+`_failsafe_rtl` at `autonomous_drone_main.py:1776` is the separate RTL path.
 
 ---
 
@@ -744,8 +745,8 @@ document, is the authoritative schema.** Classes:
 
 Inbound commands are handled by `SGCCommandReceiver` in
 `jetson/communication/sgc_receiver.py`, with matching logic in `_find_best_match`, both
-imported at `autonomous_drone_main.py:67` and dispatched at
-`_handle_sgc_command` (`autonomous_drone_main.py:885`).
+imported at `autonomous_drone_main.py:72` and dispatched at
+`_handle_sgc_command` (`autonomous_drone_main.py:1174`).
 
 ### Inbound command protocol (SGC → drone)
 
@@ -760,7 +761,8 @@ as `[SGC] ...`.
 | `follow_start` | same as `select_target`, `bbox` optional | runs the takeoff preflight, then starts person-follow |
 | `follow_stop` | — | stops following and holds position |
 | `arm` | — | arms the vehicle in GUIDED with a force-arm (`MAV_CMD_COMPONENT_ARM_DISARM`, `param2=21196`), so the FCU's pre-arm checks are skipped by design — validate them in Mission Planner first; same as the on-screen ARM button |
-| `takeoff` | — | climbs to `MAX_ALT` — **refused unless the vehicle is already armed**, so send `arm` first |
+| `takeoff` | — | climbs to `TAKEOFF_ALTITUDE` (3 m) — **refused unless the vehicle is already armed**, so send `arm` first |
+| `arm_takeoff` | — | one-click arm + climb: force-arms, waits for the FCU to report armed, then climbs to `TAKEOFF_ALTITUDE` (3 m) in a single flight command — same code path as the on-screen ARM & TAKEOFF button; **refused if the vehicle is already armed** (send `takeoff` instead) or if telemetry never arrived |
 | `land` | — | stops following, clears the target and lands; the app keeps running |
 | `disarm` | — | disarms — **refused above 0.5 m altitude**, so send `land` first |
 | **`panic_rtl`** | — | **panic RTL: immediate return to launch, then the app stops streaming and exits** |
@@ -770,9 +772,8 @@ Minimum payloads:
 
 ```json
 {"type": "arm"}
-{"type": "takeoff"
-  
-}
+{"type": "takeoff"}
+{"type": "arm_takeoff"}
 {"type": "land"}
 {"type": "disarm"}
 {"type": "panic_rtl"}
@@ -786,6 +787,15 @@ Minimum payloads:
 > prints `Vehicle armed`), then send `{"type": "takeoff"}`. A `takeoff` on a disarmed vehicle is
 > refused with `Takeoff refused: vehicle is not armed — press ARM first` and nothing flies.
 
+> **SGC team: `arm_takeoff` is the one-command alternative.** `{"type": "arm_takeoff"}` runs the
+> whole sequence — force-arm, wait for `armed`, climb to `TAKEOFF_ALTITUDE` (3 m) — as **one**
+> flight command, so the `arm` → poll → `takeoff` round trip is optional. It shares its code path
+> with the on-screen ARM & TAKEOFF button, which means it inherits the button's refusals: if the
+> vehicle is **already armed** it answers `Already armed — press TAKEOFF to climb` (send `takeoff`
+> instead), and if telemetry never arrived it answers `Arm & takeoff refused: ...` — either way
+> nothing moves. Like every other flight command it is still subject to the one-command-at-a-time
+> lock, so poll `armed`/`height` in telemetry for the next dependent action.
+
 > **SGC team: landing needs two commands.** There is no auto-disarm — send `{"type": "land"}`, wait
 > for touchdown, then send `{"type": "disarm"}`. `disarm` is refused while the vehicle is more than
 > `DISARM_MAX_ALT` (0.5 m) above its launch altitude, and refused outright when the altitude cannot
@@ -793,13 +803,13 @@ Minimum payloads:
 > keeps streaming so the SGC sees the vehicle settle, and the receiver stays open for `disarm`.
 
 `panic_rtl` is exactly what the on-screen `P` key does — it shares one code path,
-`_trigger_panic_rtl` (`autonomous_drone_main.py:869`), so both sources issue `drone.send_rtl()`,
+`_trigger_panic_rtl` (`autonomous_drone_main.py:1065`), so both sources issue `drone.send_rtl()`,
 stop the detection stream, the command receiver and the camera, and exit. There is **no
 acknowledgement**: the drone console shows `[PANIC] RTL triggered by SGC command`, and on the SGC
 side the detection stream simply goes quiet — that is the acknowledgement.
 
-Any host that can reach UDP 9002 can send these commands, including `arm`, `takeoff`, `land`,
-`disarm` and `panic_rtl`.
+Any host that can reach UDP 9002 can send these commands, including `arm`, `arm_takeoff`,
+`takeoff`, `land`, `disarm` and `panic_rtl`.
 Keep the port on the trusted bench network only.
 
 ### Delivery semantics
@@ -815,7 +825,9 @@ Keep the port on the trusted bench network only.
   **wait for the state to change in telemetry** before sending the dependent action: `arm` →
   poll for `armed == true` → `takeoff`, and `land` → poll for `height < 0.5 m` → `disarm`
   (`DISARM_MAX_ALT`). Sending `land` and `disarm` back to back always loses the disarm, because
-  disarming while airborne is refused by design.
+  disarming while airborne is refused by design. (The `arm` → `takeoff` pair is the case you can
+  skip with `arm_takeoff`, which folds both phases into one command — but `land` → `disarm` still
+  needs the poll.)
 - **`panic_rtl` jumps the queue.** A drained batch is sorted so `panic_rtl` runs first, and the
   loop stops processing the rest and exits — a safety command is never stuck behind cosmetic ones.
 - **A malformed packet can never take the loop down.** Each command is dispatched inside
@@ -999,6 +1011,7 @@ which is ArduPilot's *ground steering*), so the code only ever interprets the Ar
 To try a command from a laptop without running the SGC:
 
 ```bash
+python tools/send_sgc_command.py --host <drone-ip> --type arm_takeoff
 python tools/send_sgc_command.py --host <drone-ip> --type panic_rtl
 python tools/send_sgc_command.py --host <drone-ip> --type follow_start --bbox 320 240 120 260 --class-name person
 ```
@@ -1082,8 +1095,8 @@ Static; there is **no** rotating scan ring (an earlier dotted scan ring was remo
 centre dot radius 2. Ring stroke radius is **22** for the fixed centre reticle and **12**
 for a selected object.
 
-> Spec/implementation drift: `modules/display.py:829` calls `radius=22`, but the function
-> signature default at `modules/display.py:694` is `radius=26`. Any other caller silently
+> Spec/implementation drift: `modules/display.py:863` calls `radius=22`, but the function
+> signature default at `modules/display.py:728` is `radius=26`. Any other caller silently
 > gets the wrong radius.
 
 ### 4. Tracking overlay — `draw_target_tracking`
@@ -1159,7 +1172,8 @@ dot GREEN, text `"ARMED"` and `HUD_TEXT_DIM` label. Dot at `(bx+16, by+15)` radi
 
 **5.3 Takeoff button** — top-right, `150×30`, `bx = w - 278`, `by = 23`, radius 15. Armed
 (clickable): fill `(12,46,32)` / `#202e0c`, border `(60,200,120)` / `#78c83c`, dot GREEN. Text
-is always `"TAKEOFF 5m"`. Disarmed: fill `(26,28,34)` / `#221c1a`, border `(70,78,92)` / `#5c4e46`,
+is always `f"TAKEOFF {app_config.TAKEOFF_ALTITUDE:.0f}m"` (`"TAKEOFF 3m"` with the shipped
+config). Disarmed: fill `(26,28,34)` / `#221c1a`, border `(70,78,92)` / `#5c4e46`,
 dot and label `HUD_TEXT_DIM` — i.e. the control is visibly disabled. Dot at `(bx+16, by+15)`
 radius 3; text font 0.42/1 in `(235,238,245)`.
 
@@ -1169,24 +1183,47 @@ label `"LAND"` in `(235,238,245)`. Disarmed: fill `(26,28,34)` / `#221c1a`, bord
 `#5c4e46`, dot and label `HUD_TEXT_DIM` — landing a disarmed vehicle would only be a mode change,
 so the control is disabled until the vehicle is armed.
 
-The three controls are laid out right-to-left with `_BUTTON_GAP = 10` and an 8 px window margin,
-so they occupy `x = w-398 … w-8` and never reach the centred mode pill (which ends at
+**5.5 Arm & TAKEOFF button** — header **second row**, `190×26`,
+`bx = w - 198`, `by = 84 - 26 - 3 = 55`, radius 13 (a `_pill_button` capsule like the others).
+The first row is full (`ARM` already starts at `x = 562` and the centred mode pill ends near
+`x ≈ 529`), so the fourth control gets its own row, right-aligned under `LAND` and never entering
+the mode pill's column. Disarmed (clickable): fill `(14,34,56)`, border `(70,180,255)`, dot CYAN —
+the ARM styling, because the press starts with an arm. Armed (not clickable): fill `(26,28,34)`,
+border `(70,78,92)`, dot and label `HUD_TEXT_DIM` — its arm step would be a no-op, so the control
+is disabled and the operator uses `TAKEOFF` instead. Label
+`f"ARM & TAKEOFF {app_config.TAKEOFF_ALTITUDE:.0f}m"`; the pill is 190 px wide so the label fits
+both OpenCV builds seen here (glyph run 104 px on OpenCV 5.0, 135 px on 4.8; `_pill_button`
+allotting `width − 52` for text).
+
+The first-row controls are laid out right-to-left with `_BUTTON_GAP = 10` and an 8 px window
+margin, so they occupy `x = w-398 … w-8` and never reach the centred mode pill (which ends at
 `x ≈ 480`):
 
-| Button | Rect (`by = 23`, height 30) |
+| Button | Rect |
 | --- | --- |
 | ARM | `(562, 23, 672, 53)` |
-| TAKEOFF 5m | `(682, 23, 832, 53)` |
+| TAKEOFF 3m | `(682, 23, 832, 53)` |
 | LAND | `(842, 23, 952, 53)` |
+| ARM & TAKEOFF 3m (row 2, `by = 55`, height 26) | `(762, 55, 952, 81)` |
 
-Clicking a button calls `_handle_arm_button` / `_handle_takeoff_button` / `_handle_land_button`;
-the hit tests use `get_arm_button_rect()` / `get_takeoff_button_rect()` / `get_land_button_rect()`.
+Clicking a button calls `_handle_arm_button` / `_handle_takeoff_button` /
+`_handle_land_button` / `_handle_arm_takeoff_button`; the hit tests use
+`get_arm_button_rect()` / `get_takeoff_button_rect()` / `get_land_button_rect()` /
+`get_arm_takeoff_button_rect()`, all resolved from `compose_window` on the previous frame.
 **Takeoff is refused unless `drone.is_armed()`** — the message is
-`"Takeoff refused: vehicle is not armed — press ARM first"`. Arming no longer gates on GPS fix or
+`"Takeoff refused: vehicle is not armed — press ARM first"`. **Arm & TAKEOFF is refused when the
+vehicle is already armed** (`"Already armed — press TAKEOFF to climb"`), otherwise it runs
+`control.arm()` and then `control.takeoff(TAKEOFF_ALTITUDE)` inside a *single*
+`_run_flight_command`, so the one-command-at-a-time lock covers the whole arm-then-climb
+sequence and the climb can only start after `arm()` has seen the vehicle report armed.
+The same sequence is exposed to the ground station as the SGC `arm_takeoff`
+command ([Inbound command protocol](#inbound-command-protocol-sgc--drone)): `_handle_sgc_command`
+dispatches it to `_handle_arm_takeoff_button`, so the button and the SGC can never drift apart.
+Arming no longer gates on GPS fix or
 EKF: `_airframe_readiness_problems()` only waits up to 8 s for GPS/EKF *telemetry* (proof the link
 is up, not proof of a fix), and `sitl.arm()` force-arms with `param2=21196`, skipping the FCU's
-pre-arm checks by design — the operator validates those in Mission Planner first. The three
-actions call `control.arm()`, `control.takeoff(MAX_ALT)` and
+pre-arm checks by design — the operator validates those in Mission Planner first. The
+actions call `control.arm()`, `control.takeoff(TAKEOFF_ALTITUDE)` and
 `control.land()` (the old combined `control.arm_and_takeoff` is kept for the mock/backend API).
 
 **The vehicle calls run off the render thread.** Arming, the takeoff climb and disarming all block
@@ -1199,7 +1236,7 @@ on a `flight-cmd` worker thread and reports the result through the HUD:
 | Phase | Thread | What the operator sees |
 | --- | --- | --- |
 | refusal checks (arm state, telemetry, altitude) | main | immediate red/amber HUD message, nothing sent |
-| `control.arm()` / `takeoff()` / `land()` / `disarm()` | `flight-cmd` worker | cyan `Taking off to 5m...` while it runs, then green success or red failure |
+| `control.arm()` / `takeoff()` / `land()` / `disarm()` | `flight-cmd` worker | cyan `Taking off to 3m...` while it runs, then green success or red failure |
 | FCU confirmation | MAVLink listener thread | unchanged — it always ran separately |
 
 `_run_flight_command` also holds `_command_in_flight`, so a second click while a command is running
@@ -1256,7 +1293,7 @@ This matters because the old code returned as soon as it saw 95 % of the request
 produced the worst possible failure: a confident
 
 ```text
-Airborne — holding at 5m
+Airborne — holding at 3m
 ```
 
 while the vehicle was at 50 m and still climbing. A genuine overshoot — or an autopilot that is not
@@ -1336,9 +1373,10 @@ net for anyone arming outside this app.
 `control.land()` — the app keeps running, so the camera, tracker, SGC link and telemetry stay up
 and the vehicle can be disarmed from the same window. `LAND` has a keyboard equivalent, `L`.
 
-**5.5 Disarming** — no button: the header has no room for a fourth control without colliding with
-the centred mode pill, and disarming is a ground-only action. It is on the `D` key and the
-`disarm` SGC command. `_handle_disarm_action()` refuses unless the vehicle is within
+**5.6 Disarming** — still no button: disarming is a ground-only action and a one-way safety
+decision, so it stays on the `D` key and the
+`disarm` SGC command. (Row 2 now belongs to ARM & TAKEOFF; the first row stayed full, and a
+fifth control would reach the centred mode pill.) `_handle_disarm_action()` refuses unless the vehicle is within
 `DISARM_MAX_ALT` (0.5 m) of the recorded home altitude, because a disarmed drone falls:
 
 | Situation | Result |
@@ -1350,7 +1388,7 @@ the centred mode pill, and disarming is a ground-only action. It is on the `D` k
 | on the ground | `control.disarm()` → `"Vehicle disarmed - motors are off"` |
 | FCU rejects the command | `"Disarm failed: <reason>"` from the `COMMAND_ACK` |
 
-**5.6 Footer chips** — `y = h - 60 + (60-24)//2 = h - 42`, chip height 24, gap 8, centred
+**5.7 Footer chips** — `y = h - 60 + (60-24)//2 = h - 42`, chip height 24, gap 8, centred
 (8 chips ≈ 617 px, so they still fit the 960 px window): `ESC`/deselect, `SPACE`/follow,
 `R`/reset, `H`/hud, `L`/land, `D`/disarm, `P`/panic RTL, `Q`/quit. Chip background
 `(30,36,50)` / `#32241e`, capsule radius `ch/2`. Key box background `(52,62,88)` / `#583e34`,
@@ -1412,7 +1450,7 @@ numbers, and no state machine** — only the four-value `tracker_state` enum and
 name-level field mapping. The sections 5.1/6 prompt rules imply the transitions
 `idle → selected → tracking → lost`, but that state machine is not written down anywhere.
 The authoritative sources are `shared/detection_models.py:363-419` (schema),
-`shared/detection_transport.py` (transport) and `autonomous_drone_main.py:1382`
+`shared/detection_transport.py` (transport) and `autonomous_drone_main.py:122`
 (`args.sgc_cmd_port`). This is the largest documentation gap in the project; a client cannot
 be implemented against the overlay spec alone.
 
@@ -1458,7 +1496,7 @@ for latency; lower is faster. On Jetson the intended path is hardware H.264 via 
 python -m pytest -q
 ```
 
-Current result: **371 passed, 316 subtests passed**.
+Current result: **395 passed, 319 subtests passed**.
 
 Test files (local only — gitignored, never committed):
 
@@ -1466,6 +1504,7 @@ Test files (local only — gitignored, never committed):
 | --- | --- |
 | `tests/test_servo_mavlink.py` | servo command routing, discovery-cache refresh, consent gates, RC-override watchdog, pulse verification |
 | `tests/test_arm_force.py` | force-arm wire bytes (`param2=21196`), GUIDED gate, arm-state wait error text |
+| `tests/test_arm_takeoff_button.py` | ARM & TAKEOFF second-row geometry, armed gating, arm-then-climb sequence in one flight command, SGC `arm_takeoff` dispatch and parsing |
 | `tests/test_yaw_sign.py` | negated yaw rate at the MAVLink boundary (flight-tested sign) |
 | `tests/test_servo_channels.py` | `plan_drive`, `parse_servo_functions`, gimbal-channel picking, drive constants |
 | `tests/test_link_selection.py` | `--drone-link` precedence, real-FCU fallback, endpoint recognition |
@@ -1709,7 +1748,7 @@ echo 'KERNEL=="ttyTHS1", MODE="0666"' | sudo tee /etc/udev/rules.d/99-ttyTHS1.ru
 desktop-camera data using the estimator's own equation — it is a placeholder, not a
 calibration, and will be wrong for a different lens. See
 [the circular-fit warning](#circular-fit-warning-the-0133-m-baseline-is-not-valid-accuracy).
-Resolution differences are handled automatically (`autonomous_drone_main.py:773` calls
+Resolution differences are handled automatically (`autonomous_drone_main.py:1536` calls
 `scaled_to_frame`), but a different **lens** is not.
 
 **6. Replace the mock LiDAR** (`modules/lidar_backend/mock.py`) if a real LiDAR is fitted.
@@ -1984,8 +2023,8 @@ example `YOLO/yolo11s.pt` is correctly ignored.
 
 The model is a **hard runtime requirement**:
 
-- `autonomous_drone_main.py:103` — the `--model-path` default is `YOLO/yolo11n.pt`
-- `autonomous_drone_main.py:752` — `detector.initialize_detector(args.model_path, …)`
+- `autonomous_drone_main.py:110` — the `--model-path` default is `YOLO/yolo11n.pt`
+- `autonomous_drone_main.py:942` — `detector.initialize_detector(args.model_path, …)`
 - `modules/yolo11_detector/model.py:6-17` — loads a **local** path behind an `os.path.exists`
   guard
 - `modules/yolo11_detector/api.py:57` — API surface
@@ -1998,8 +2037,8 @@ Jetson document says "Copy", which presupposes a source file.
 
 Failure mode if the weights are untracked: `os.path.exists` returns False →
 `FileNotFoundError` at `model.py:10` → caught by the broad `except Exception` at line 15 →
-`load_model` returns `(None, [])` → `api.py:60-62` returns `False` →
-`autonomous_drone_main.py:752` aborts **before flight setup**. Eight capabilities fail at
+`load_model` returns `(None, [])` → `api.py:62-63` returns `False` →
+`autonomous_drone_main.py:942` aborts **before flight setup**. Eight capabilities fail at
 once: production behaviour, Jetson deployment, SITL testing, mock testing, calibration,
 distance estimation, person-follow, and SGC communication — plus both Jetson checklists'
 copy steps and their CUDA smoke tests.
@@ -2139,8 +2178,8 @@ papered over. **Verified against the live tree unless marked *(documented)*.**
 14. **The outlier threshold makes no sense** given the actual error scale: worst absolute
     error is 0.259 m and worst MRE is 22.5%. A `> 1 m` arm would never fire; a `> 1%` arm
     always does.
-15. **Reticle radius default mismatch.** The spec mandates 22 and `display.py:829` calls
-    `radius=22`, but the function signature default at `display.py:694` is `radius=26`. Any
+15. **Reticle radius default mismatch.** The spec mandates 22 and `display.py:863` calls
+    `radius=22`, but the function signature default at `display.py:728` is `radius=26`. Any
     other caller silently gets the wrong radius.
 16. **BGR/hex pairs** throughout the overlay spec are the BGR triple read as RGB
     (`(255,178,40)` → `#28b2ff`). This is correct by construction and must be stated once or

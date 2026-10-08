@@ -17,7 +17,9 @@ Examples:
 ``servo`` without ``--channel`` uses the gimbal channel the drone detected from
 the autopilot, so the channel does not have to be repeated here.
 
-``takeoff`` no longer arms the vehicle: send ``arm`` first, then ``takeoff``.
+``takeoff`` no longer arms the vehicle: send ``arm`` first, then ``takeoff`` -
+or skip the pair with ``arm_takeoff``, which arms and climbs to the takeoff
+altitude as one command (refused if the vehicle is already armed).
 
 ``land`` lands but keeps the app running, so ``disarm`` can follow once the
 vehicle is on the ground - ``disarm`` is refused above 0.5 m altitude.
@@ -39,6 +41,7 @@ COMMAND_TYPES = (
     "follow_start",
     "follow_stop",
     "arm",
+    "arm_takeoff",
     "takeoff",
     "land",
     "disarm",

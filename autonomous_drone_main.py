@@ -43,6 +43,7 @@ from modules.display import (
     compose_window,
     display_to_frame,
     get_arm_button_rect,
+    get_arm_takeoff_button_rect,
     get_land_button_rect,
     get_lost_dismiss_rect,
     get_takeoff_button_rect,
@@ -379,6 +380,42 @@ def _handle_takeoff_button():
                         "Takeoff failed: ")
 
 
+def _handle_arm_takeoff_button():
+    """One click: force-arm the vehicle and climb to the takeoff altitude.
+
+    The arm and takeoff phases stay sequential inside a single flight command -
+    the arm already waits for the FCU to report armed, so the takeoff is only
+    issued once the vehicle can actually respond to it. Refuses when the
+    vehicle is already armed (use TAKEOFF) or when telemetry never arrived.
+    """
+    try:
+        if drone.is_armed():
+            msg = "Already armed — press TAKEOFF to climb"
+            print(msg)
+            set_hud_status(msg, (255, 255, 0), 3.0)
+            return
+    except Exception:
+        pass
+
+    problems = _airframe_readiness_problems()
+    if problems:
+        msg = "Arm & takeoff refused: " + "; ".join(problems) + "."
+        print(msg)
+        set_hud_status(msg, (0, 0, 255), 4.0)
+        return
+
+    def arm_and_climb():
+        control.arm()
+        control.takeoff(TAKEOFF_ALTITUDE)
+        control.set_flight_altitude(TAKEOFF_ALTITUDE)
+
+    _run_flight_command(
+        arm_and_climb,
+        f"Arming and taking off to {TAKEOFF_ALTITUDE:.0f}m...",
+        f"Airborne — holding at {TAKEOFF_ALTITUDE:.0f}m",
+        "Arm & takeoff failed: ")
+
+
 def _handle_land_button():
     """Land the vehicle but keep the app running (SGC link, camera, tracking)."""
     global _following
@@ -446,7 +483,8 @@ def _on_mouse(event, x, y, flags, param):
     if event == cv2.EVENT_LBUTTONDOWN:
         for rect, handler in ((get_arm_button_rect(), _handle_arm_button),
                               (get_takeoff_button_rect(), _handle_takeoff_button),
-                              (get_land_button_rect(), _handle_land_button)):
+                              (get_land_button_rect(), _handle_land_button),
+                              (get_arm_takeoff_button_rect(), _handle_arm_takeoff_button)):
             if rect is not None and rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]:
                 handler()
                 return
@@ -1189,6 +1227,12 @@ def _handle_sgc_command(cmd, detections):
     elif cmd.command_type == "takeoff":
         print("[SGC] Takeoff requested")
         _handle_takeoff_button()
+    elif cmd.command_type == "arm_takeoff":
+        # Same one-click sequence as the on-screen ARM & TAKEOFF button: the
+        # arm and the climb run inside one _run_flight_command, so SGC does not
+        # have to wait for armed==true in telemetry between the two phases.
+        print("[SGC] Arm & takeoff requested")
+        _handle_arm_takeoff_button()
     elif cmd.command_type == "land":
         print("[SGC] Land requested")
         _handle_land_button()

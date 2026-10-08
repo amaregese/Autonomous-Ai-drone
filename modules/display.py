@@ -342,6 +342,7 @@ def compose_window(native, tracker_state, target_class, tracking_conf, fps,
     draw_arm_button(canvas, armed)
     draw_takeoff_button(canvas, armed)
     draw_land_button(canvas, armed)
+    draw_arm_takeoff_button(canvas, armed)
     return canvas
 
 
@@ -495,9 +496,13 @@ _lost_dismiss_rect = None
 _takeoff_button_rect = None
 _arm_button_rect = None
 _land_button_rect = None
+_arm_takeoff_button_rect = None
 _TAKEOFF_BUTTON_W = 150
 _TAKEOFF_BUTTON_H = 30
 _ARM_BUTTON_W = 110
+_ARM_TAKEOFF_BUTTON_W = 190
+_ARM_TAKEOFF_BUTTON_H = 26
+_ARM_TAKEOFF_BUTTON_Y = HEADER_FINAL - _ARM_TAKEOFF_BUTTON_H - 3
 _LAND_BUTTON_W = 110
 _BUTTON_GAP = 10
 _BUTTON_MARGIN = 8
@@ -568,6 +573,28 @@ def draw_land_button(img, armed: bool = False):
                         "LAND", fill, border, dot_c, enabled=armed)
 
 
+def draw_arm_takeoff_button(img, armed: bool = False):
+    """Second header row: arm and climb in one click (refuses when armed)."""
+    global _arm_takeoff_button_rect
+    h, w = img.shape[:2]
+    bx = w - _BUTTON_MARGIN - _ARM_TAKEOFF_BUTTON_W
+    by = _ARM_TAKEOFF_BUTTON_Y
+    _arm_takeoff_button_rect = (bx, by, bx + _ARM_TAKEOFF_BUTTON_W,
+                                by + _ARM_TAKEOFF_BUTTON_H)
+
+    if armed:
+        fill, border, dot_c = (26, 28, 34), (70, 78, 92), HUD_TEXT_DIM
+        enabled = False
+    else:
+        fill, border, dot_c = (14, 34, 56), (70, 180, 255), CYAN
+        enabled = True
+
+    return _pill_button(img, bx, by, _ARM_TAKEOFF_BUTTON_W,
+                        _ARM_TAKEOFF_BUTTON_H,
+                        f"ARM & TAKEOFF {app_config.TAKEOFF_ALTITUDE:.0f}m",
+                        fill, border, dot_c, enabled=enabled)
+
+
 def get_takeoff_button_rect():
     return _takeoff_button_rect
 
@@ -578,6 +605,10 @@ def get_arm_button_rect():
 
 def get_land_button_rect():
     return _land_button_rect
+
+
+def get_arm_takeoff_button_rect():
+    return _arm_takeoff_button_rect
 
 
 # ---------------------------------------------------------------------------

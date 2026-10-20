@@ -10,6 +10,7 @@ sys.path.insert(0, "modules")
 
 from modules import detector_yolo11 as detector
 from modules.display import hud
+from modules.logging_util import log as _log
 from shared.detection_models import (
     BBox,
     CameraIntrinsics,
@@ -309,9 +310,10 @@ class Streamer:
             self._last_selected_class = selected_obj.class_name
         tracker_state = _get_tracker_state(following=(movement is not None))
         if tracker_state != self._last_state_sent:
-            print(
-                f"[SEND] tracker_state: '{self._last_state_sent}' -> '{tracker_state}' "
-                f"(class={self._last_selected_class})"
+            _log(
+                "SEND",
+                f"tracker_state: '{self._last_state_sent}' -> '{tracker_state}' "
+                f"(class={self._last_selected_class})",
             )
             self._last_state_sent = tracker_state
         tracking_conf = detector.get_tracking_confidence() if selected_obj else 0.0

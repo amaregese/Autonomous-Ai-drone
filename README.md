@@ -27,6 +27,7 @@ lost.
 - [Detection and tracking](#detection-and-tracking)
 - [Distance estimation](#distance-estimation)
 - [Person-follow control](#person-follow-control)
+- [DataFlash log download](#dataflash-log-download)
 - [SGC ground-station link](#sgc-ground-station-link)
 - [Tracker overlay specification](#tracker-overlay-specification)
 - [Camera calibration](#camera-calibration)
@@ -139,7 +140,7 @@ FCU. Because the SGC laptop's IP changes between setups, the app also asks for i
 press ENTER to keep the last known address.
 
 Flight-safety preconditions are enforced before takeoff in `_preflight_follow`
-(`autonomous_drone_main.py:198`): minimum altitude 2.0 m (a fixed floor well below the 3 m
+(`autonomous_drone_main.py:207`): minimum altitude 2.0 m (a fixed floor well below the 2.5 m
 cruise/takeoff altitude, so a follow is never refused for being at its own configured height),
 minimum battery 20 %, minimum GPS fix type 3, and FCU mode must be `GUIDED`.
 
@@ -149,7 +150,8 @@ minimum battery 20 %, minimum GPS fix type 3, and FCU mode must be `GUIDED`.
 python -m pytest -q
 ```
 
-Current result: **395 passed, 319 subtests passed** (see [Testing](#testing)).
+Current result: **621 passed, 415 subtests passed** (12 collection errors + 73 pre-existing
+failures remain — see [Testing](#testing)).
 
 ---
 
@@ -183,6 +185,9 @@ The central configuration module. Two groups of constants live here.
 | `FOLLOW_MAX_SPEED_MPS` | 1.0 | cap beyond the last breakpoint |
 | `FOLLOW_MIN_SPEED_MPS` | 0.0 | |
 | `FOLLOW_MIN_DISTANCE_M` | 2.0 | closer than this → hover |
+| `FOLLOW_DISTANCE` | 3.0 | horizontal ground-distance setpoint (m) |
+| `DISTANCE_TOLERANCE` | 0.5 | deadband half-width around the setpoint (m) |
+| `FOLLOW_REVERSE_SPEED` | 0.3 | fixed backward cruise speed for `TOO_CLOSE` |
 | `FOLLOW_MAX_LATERAL_SPEED_MPS` | 0.6 | |
 | `FOLLOW_ACCEL_LIMIT_MPS2` | 0.5 | acceleration ramp limit |
 | `FOLLOW_CONFIDENCE_THRESHOLD` | 0.5 | below this the measurement is rejected |
@@ -192,15 +197,47 @@ The central configuration module. Two groups of constants live here.
 | `FOLLOW_LATERAL_GAIN` | 1.2 | |
 | `FOLLOW_TARGET_CLASS` | `"person"` | |
 | `FOLLOW_MAX_DETECTION_AGE_S` | 0.5 | stale-detection rejection |
-| `MIN_FOLLOW_ALT` / `MIN_FOLLOW_BATTERY` / `MIN_FOLLOW_GPS_FIX` / `MIN_FOLLOW_MODE` | 2.0 / 20 / 3 / `"GUIDED"` | preflight gates (`MIN_FOLLOW_ALT` is a fixed 2.0 m floor, below the 3.0 m flight altitude) |
+| `MIN_FOLLOW_ALT` / `MIN_FOLLOW_BATTERY` / `MIN_FOLLOW_GPS_FIX` / `MIN_FOLLOW_MODE` | 2.0 / 20 / 3 / `"GUIDED"` | preflight gates (`MIN_FOLLOW_ALT` is a fixed 2.0 m floor, at the 2.5 m flight altitude) |
 | `DISARM_MAX_ALT` | 0.5 | how far above home altitude the vehicle may be when it is disarmed |
+| `CAMERA_MOUNTED_ON_VEHICLE` | `False` | camera-height source: `True` = derive from vehicle AGL; `False` = bench webcam (trial default) |
+| `ASSUME_TARGET_AT_HOME_ELEVATION` | `True` | target assumed to stand at the vehicle's home elevation |
+| `CAMERA_OFFSET_BELOW_VEHICLE_M` | 0.15 | how far the camera sits below the vehicle altitude reference (mounted case) |
+| `BENCH_CAMERA_HEIGHT_M` | 0.3 | camera height above the target's ground plane for a bench webcam |
 
 `OBJECT_HEIGHTS` maps each of the 80 COCO classes to an assumed real-world height in metres
 (`person` 1.3, `bicycle` 1.0, `car` 1.5, `giraffe` 4.5, …). These are **approximations** used
 by the geometric-vision ranging method and are a documented source of ranging error.
 
-`FollowConfig.from_app_config()` (`modules/person_follow.py:56`) reads all of the above at
+`FollowConfig.from_app_config()` (`modules/person_follow.py:60`) reads all of the above at
 runtime, so editing `app_config.py` is sufficient to retune behaviour.
+
+### Camera height above the target (`modules/altitude.py`)
+
+The horizontal ground distance `H` is `sqrt(slant**2 - camera_height**2)`, where
+`camera_height` is the **camera's** height above the ground the target stands on — not the
+vehicle's altitude above its launch point. Those differ by the camera's mount offset and only
+coincide when the target is known to stand at the vehicle's home elevation.
+
+`modules/altitude.py:compute_camera_height(vehicle_agl, cam_offset_m, assume_home)` is the pure
+helper: it returns `vehicle_agl - cam_offset_m` when that is finite and strictly positive and
+`assume_home` is true, and `None` otherwise (no height is ever manufactured).
+
+`autonomous_drone_main.py:_camera_height_above_target()` selects the source:
+
+- `CAMERA_MOUNTED_ON_VEHICLE = True` — the camera is rigidly mounted on the vehicle, so
+  `compute_camera_height(AGL, CAMERA_OFFSET_BELOW_VEHICLE_M, ASSUME_TARGET_AT_HOME_ELEVATION)`
+  is used.
+- `CAMERA_MOUNTED_ON_VEHICLE = False` (the trial default) — the camera is a bench webcam on a
+  SITL/desk run, where the vehicle AGL does not describe the camera, so the configured
+  `BENCH_CAMERA_HEIGHT_M` is used instead.
+
+In the SITL/webcam case the vehicle's 2.5 m AGL was previously fed in as the camera height, so any
+target read closer than 2.5 m hit the `slant <= altitude` impossible-geometry guard and `H`
+stayed `--` (the follow controller then held, since forward motion is driven only by `H`).
+Supplying a real bench camera height restores a valid `H`. When a measurement is still invalid,
+`modules/distance_estimator/vision.py:_diagnose_horizontal_failure(...)` names the cause
+(`altitude unavailable`, `geometry impossible`, …) for the console. Note this is observational:
+the estimator never derives its own altitude and the follow controller never recomputes `H`.
 
 ### Command-line arguments
 
@@ -234,6 +271,8 @@ Defined in `autonomous_drone_main.py`. Complete set:
 | `--auto-calibrate` | flag | run chessboard calibration in a background thread |
 | `--chessboard` | `9x6` | chessboard inner corners |
 | `--object-height` | 0.25 | assumed object height for monocular ranging |
+| `--log-download` / `--no-log-download` | on for `flight`, off for `sitl` | download the vehicle DataFlash log over MAVLink after each disarm (see [DataFlash log download](#dataflash-log-download)) |
+| `--log-dir` | `<repo root>/logs/dataflash` | directory for downloaded DataFlash logs |
 
 ### `run_config.json` (IDE / Run button defaults)
 
@@ -382,6 +421,7 @@ Autonomous-AI-Drone/
 │   └── yolo11n.pt               # tracked model weights (5.6 MB)
 ├── modules/                     # core production code
 │   ├── app_config.py            # central configuration
+│   ├── altitude.py              # camera-height-above-target helper
 │   ├── run_config.py            # run_config.json loader (argparse defaults)
 │   ├── auto_calibrate.py        # chessboard camera calibration
 │   ├── control.py               # 42-byte abstraction shim
@@ -389,6 +429,7 @@ Autonomous-AI-Drone/
 │   ├── drone.py                 # 41-byte abstraction shim
 │   ├── lidar.py                 # 42-byte abstraction shim
 │   ├── display.py               # OpenCV HUD / overlay rendering (~34 KB)
+│   ├── logging_util.py          # standard [TAG] console logs that share the status line
 │   ├── person_follow.py         # Task 9 follow controller
 │   ├── tracking.py              # click-to-select target session
 │   ├── drone_visualizer.py      # 53-byte wrapper → visualizer_ui
@@ -402,7 +443,7 @@ Autonomous-AI-Drone/
 │   │   ├── calibration.py       # CameraIntrinsics
 │   │   ├── config.py  filter.py  models.py  lidar.py  depth.py
 │   │   └── depth_backend/       # metric_depth (ZoeDepth), synthetic
-│   ├── drone_backend/           # api.py, sitl.py, mock_vehicle.py
+│   ├── drone_backend/           # api.py, sitl.py, mock_vehicle.py, log_download.py
 │   ├── lidar_backend/           # mock LiDAR
 │   ├── visualizer_ui/           # ACTIVE visualizer implementation
 │   └── yolo11_detector/         # model, source, matching, config, api, types
@@ -441,9 +482,11 @@ tooling. The only tracked file still matched by an ignore rule is the model, by 
 `tests/`, `tools/` (except `send_sgc_command.py`) and `benchmarks/` are **local-only**: they
 exist on the dev machine but are gitignored, so they are never committed and never reach a
 clone or the Jetson — see
-[Repository hygiene and Git policy](#repository-hygiene-and-git-policy). `tests/` holds 12 test
-modules (13 files) covering servo channel planning, servo MAVLink routing, link selection, the
-SGC receiver, force-arm/force-takeoff button behaviour and app config — see [Testing](#testing).
+[Repository hygiene and Git policy](#repository-hygiene-and-git-policy). `tests/` holds 40 test
+modules (plus `__init__.py`) covering servo channel planning, servo MAVLink routing, link
+selection, the SGC receiver, force-arm/force-takeoff button behaviour, the follow
+distance/state machine and app config. 12 of them fail to collect (and 73 tests fail) because
+they target an unmerged safety/watchdog/failsafe API — see [Testing](#testing).
 
 **`modules/navigation.py`, `modules/vision.py` and `modules/vision_utils/` were kept even
 though nothing on the flight path imports them.** They are the reference implementation behind
@@ -451,9 +494,10 @@ the "Legacy bbox" benchmark column — `distance_estimator/evaluation.py:99` imp
 `FollowController` from them — so deleting them would make the distance benchmark
 unreproducible. See [Historical audit record](#historical-audit-record).
 
-**Automated regression coverage lives in `tests/`** — 395 tests, all passing
-(`python -m pytest -q`). The older 227/2 baseline and the two depth-laziness failures refer to
-a deleted suite; see [Testing](#testing).
+**Automated regression coverage lives in `tests/`** — 621 passed, 415 subtests passed, with 12
+collection errors and 73 pre-existing failures (`python -m pytest -q
+--continue-on-collection-errors`). The older 227/2 baseline and the two depth-laziness failures
+refer to a deleted suite; see [Testing](#testing).
 
 ---
 
@@ -465,33 +509,35 @@ a deleted suite; see [Testing](#testing).
 
 | Line | Symbol | Role |
 | --- | --- | --- |
-| 192 | `_reset_lost_state` | clears tracking-loss state after a successful follow |
-| 198 | `_preflight_follow` | battery / GPS / mode / altitude gates before takeoff |
-| 248 | `_airframe_readiness_problems` | telemetry wait shared by ARM and TAKEOFF (no GPS/EKF state gate) |
-| 292 | `_run_flight_command` | runs a blocking vehicle call on the `flight-cmd` worker thread |
-| 334 | `_handle_arm_button` | on-screen ARM button |
-| 356 | `_handle_takeoff_button` | on-screen takeoff button (requires an armed vehicle) |
-| 383 | `_handle_arm_takeoff_button` | one-click ARM & TAKEOFF button (arm, then climb) |
-| 419 | `_handle_land_button` | on-screen LAND button (stops follow, keeps the app running) |
-| 435 | `_ground_altitude` | altitude above home, used by the disarm guard |
-| 443 | `_handle_disarm_action` | disarm (refused above `DISARM_MAX_ALT`) — `D` key / SGC `disarm` |
-| 482 | `_on_mouse` | click-to-select target, ARM, TAKEOFF, LAND and ARM & TAKEOFF buttons |
-| 507 | `_serial_heartbeat_ok` | serial heartbeat watchdog |
-| 532 | `_detect_serial_ports` | COM-port enumeration |
-| 571 | `_default_fcu_serial` | default FCU port |
-| 661 | `_pick_connection` | connection-string selection |
-| 909 | `setup` | camera, detector, estimator, SGC, streaming initialisation |
-| 1174 | `_handle_sgc_command` | inbound SGC command handling |
-| 1281 | `_handle_keyboard` | `ESC` deselect, `SPACE` follow, `R` reset, `H` HUD, `L` land, `D` disarm, `P` panic RTL, `Q` quit |
-| 1351 | `_update_hud_state` | |
-| 1363 | `_build_telemetry` | builds `TelemetryData` for the SGC payload |
-| 1408 | `_selected_distance` | current target distance for the HUD |
-| 1430 | `_console_status` | console status line |
-| 1489 | `_follow_movement_dict` | follow command → dict for the HUD |
-| 1522 | `_refresh_follow_estimator` | re-creates the estimator when intrinsics change |
-| 1548 | `main_loop` | the per-frame loop (drains the SGC queue, `panic_rtl` first) |
-| 1755 | `land` | |
-| 1776 | `_failsafe_rtl` | RTL failsafe |
+| 200 | `_reset_lost_state` | clears tracking-loss state after a successful follow |
+| 207 | `_preflight_follow` | battery / GPS / mode / altitude gates before takeoff |
+| 257 | `_airframe_readiness_problems` | telemetry wait shared by ARM and TAKEOFF (no GPS/EKF state gate) |
+| 301 | `_run_flight_command` | runs a blocking vehicle call on the `flight-cmd` worker thread |
+| 348 | `_handle_arm_button` | on-screen ARM button |
+| 385 | `_handle_takeoff_button` | on-screen takeoff button (requires an armed vehicle) |
+| 412 | `_handle_arm_takeoff_button` | one-click ARM & TAKEOFF button (arm, then climb) |
+| 448 | `_handle_land_button` | on-screen LAND button (stops follow, keeps the app running) |
+| 464 | `_ground_altitude` | altitude above home, used by the disarm guard |
+| 472 | `_camera_height_above_target` | camera height above the target's ground plane for the `H` geometry (see [camera height](#camera-height-above-the-target-modulesaltitudepy)) |
+| 491 | `_handle_disarm_action` | disarm (refused above `DISARM_MAX_ALT`) — `D` key / SGC `disarm` |
+| 527 | `_on_mouse` | click-to-select target, ARM, TAKEOFF, LAND and ARM & TAKEOFF buttons |
+| 552 | `_serial_heartbeat_ok` | serial heartbeat watchdog |
+| 577 | `_detect_serial_ports` | COM-port enumeration |
+| 616 | `_default_fcu_serial` | default FCU port |
+| 706 | `_pick_connection` | connection-string selection |
+| 954 | `setup` | camera, detector, estimator, SGC, streaming initialisation |
+| 1110 | `_trigger_panic_rtl` | shared panic-RTL path (`P` key / SGC `panic_rtl`) |
+| 1219 | `_handle_sgc_command` | inbound SGC command handling |
+| 1326 | `_handle_keyboard` | `ESC` deselect, `SPACE` follow, `R` reset, `H` HUD, `L` land, `D` disarm, `P` panic RTL, `Q` quit |
+| 1396 | `_update_hud_state` | |
+| 1408 | `_build_telemetry` | builds `TelemetryData` for the SGC payload |
+| 1453 | `_selected_distance` | current target distance for the HUD |
+| 1483 | `_console_status` | single `\r` status line; announces itself to `modules/logging_util.py` so logs don't overwrite it |
+| 1544 | `_follow_movement_dict` | follow command → dict for the HUD |
+| 1577 | `_refresh_follow_estimator` | re-creates the estimator when intrinsics change |
+| 1603 | `main_loop` | the per-frame loop (drains the SGC queue, `panic_rtl` first) |
+| 1825 | `land` | |
+| 1846 | `_failsafe_rtl` | RTL failsafe |
 
 ### Data flow
 
@@ -558,12 +604,12 @@ autonomous_drone_main.py
 | `config.py`, `types.py` | thresholds and the `Detection` dataclass |
 
 Failure behaviour matters for deployment: if the weights are missing, `model.py` returns
-`(None, [])`, `api.py:58-63` returns `False`, and `autonomous_drone_main.py:942` aborts
+`(None, [])`, `api.py:58-63` returns `False`, and `autonomous_drone_main.py:987` aborts
 **before** flight setup. A missing model file is therefore a hard startup failure, not a
 degraded mode.
 
 **Target selection** — `modules/tracking.py` provides `TrackingSession`; a mouse click
-selects a detection (`_on_mouse` at `autonomous_drone_main.py:482`), and the selection
+selects a detection (`_on_mouse` at `autonomous_drone_main.py:527`), and the selection
 persists across frames.
 
 ---
@@ -630,56 +676,165 @@ is not a calibration).
 
 | Line | Symbol |
 | --- | --- |
-| 34 | `FollowConfig` (56: `from_app_config`) |
-| 78 | `FollowCommand` |
-| 97 | `PersonFollowController` |
+| 35 | `FollowConfig` (60: `from_app_config`) |
+| 85 | `FollowCommand` |
+| 145 | `PersonFollowController` |
 
 **`PersonFollowController` methods**
 
 | Line | Method | Role |
 | --- | --- | --- |
-| 106 | `__init__` | |
-| 121 | `set_distance_estimator` | |
-| 124 | `set_focal_length` | |
-| 128 | `reset` | |
-| 139 | `lost_time_s` | |
-| 146 | `update` | main per-frame entry → `FollowCommand` |
-| 207 | `_usable` | confidence / age / class gating |
-| 221 | `_on_invalid` | |
-| 243 | `_mark_target_present` | |
-| 248 | `measure_range` | LiDAR distance preferred, geometry fallback |
-| 305 | `_geometry_range` | |
-| 317 | `_target_forward_speed` | applies `FOLLOW_SPEED_PROFILE` |
-| 333 | `_target_lateral_speed` | |
-| 339 | `_x_delta` | |
-| 346 | `_resolve_dt` | |
-| 354 | `_ramp` | enforces `FOLLOW_ACCEL_LIMIT_MPS2` |
-| 362 | `loss_action` | |
-| 366 | `loss_timeout_reached` | honours `FOLLOW_TARGET_LOSS_TIMEOUT_S` |
+| 154 | `__init__` | |
+| 170 | `set_distance_estimator` | |
+| 173 | `set_focal_length` | |
+| 177 | `reset` | |
+| 189 | `lost_time_s` | |
+| 196 | `update` | main per-frame entry → `FollowCommand` |
+| 267 | `_usable` | confidence / age / class gating |
+| 281 | `_on_invalid` | |
+| 304 | `_mark_target_present` | |
+| 310 | `_horizontal_distance_value` | reads the live `H` (never derives it) |
+| 322 | `horizontal_distance` | validated `H` or `None` |
+| 333 | `horizontal_distance_state` | `TOO_CLOSE` / `HOLD` / `TOO_FAR` / `INVALID` from `H` |
+| 344 | `measure_range` | attached measurement preferred, geometry fallback |
+| 401 | `_geometry_range` | |
+| 413 | `forward_speed_target` | `TOO_FAR` profile / `TOO_CLOSE` reverse / zero |
+| 431 | `_target_forward_speed` | applies `FOLLOW_SPEED_PROFILE` |
+| 447 | `_target_lateral_speed` | |
+| 453 | `_x_delta` | |
+| 460 | `_resolve_dt` | |
+| 468 | `_ramp` | enforces `FOLLOW_ACCEL_LIMIT_MPS2` |
+| 476 | `loss_action` | |
+| 480 | `loss_timeout_reached` | honours `FOLLOW_TARGET_LOSS_TIMEOUT_S` |
 
 **Behaviour.** Forward control uses the horizontal ground distance `H` from the vision
 distance-estimation pipeline:
 
 | `H` | Action |
 | --- | --- |
-| `H > 4.5 m` | forward (existing distance→speed breakpoints) |
-| `3.5–4.5 m` | hold |
-| `H < 3.5 m` | backward at `FOLLOW_REVERSE_SPEED` (0.3 m/s) |
+| `H > 3.5 m` | forward (existing distance→speed breakpoints) |
+| `2.5–3.5 m` | hold |
+| `H < 2.5 m` | backward at `FOLLOW_REVERSE_SPEED` (0.3 m/s) |
 | invalid `H` | stop |
 
-The setpoint is `FOLLOW_DISTANCE` (4.0 m) with `DISTANCE_TOLERANCE` (0.5 m); the backward speed
+The setpoint is `FOLLOW_DISTANCE` (3.0 m) with `DISTANCE_TOLERANCE` (0.5 m); the backward speed
 is fixed at `FOLLOW_REVERSE_SPEED` (0.3 m/s). Lateral speed is driven by the horizontal
 image-space delta scaled by `FOLLOW_LATERAL_GAIN` and capped at 0.6 m/s. All velocity changes
 remain rate-limited to 0.5 m/s². Measurements below `FOLLOW_CONFIDENCE_THRESHOLD` or older than
 `FOLLOW_MAX_DETECTION_AGE_S` are rejected.
 
+The backward command is a negative forward velocity: the follow loop calls
+`send_movement_command_XYA(cmd.vy, cmd.vx, MAX_ALT)`, and the backend maps `vx` to the body-frame
+X (forward/back) velocity in `MAV_FRAME_BODY_OFFSET_NED`, so `TOO_CLOSE` drives a negative X
+velocity and the vehicle reverses away. `tests/test_yaw_sign.py` pins this axis sign at the
+MAVLink boundary.
+
 **Geometry limitation.** The horizontal conversion assumes an approximately level camera
-orientation; pitch compensation / ATTITUDE integration is not yet implemented. The existing
-camera calibration values have not been changed.
+orientation; pitch compensation / ATTITUDE integration is not yet implemented. It also needs the
+camera's height above the target's ground plane (see
+[camera height](#camera-height-above-the-target-modulesaltitudepy)); when the camera is not mounted
+on the vehicle (bench webcam / SITL) that height comes from `BENCH_CAMERA_HEIGHT_M` rather than
+vehicle AGL. The existing camera calibration values have not been changed.
 
 **Loss handling.** After `FOLLOW_TARGET_LOSS_TIMEOUT_S` (10 s) the configured loss action
 fires. `FOLLOW_RTL_ON_LOSS` is `False` by default, so the default is a non-RTL loss action;
-`_failsafe_rtl` at `autonomous_drone_main.py:1776` is the separate RTL path.
+`_failsafe_rtl` at `autonomous_drone_main.py:1846` is the separate RTL path.
+
+**The loss messages fire once per loss, not once per frame.** The detector's `is_tracking_lost`
+and the follow controller's `follow_cmd.lost` are two different verdicts on the same frame and can
+disagree — when they did, the old reset keyed on the detector cleared `_lost_start_time` every
+frame, so `[LOST] Target lost — holding position until re-acquired` (and the 10 s `... hovering`
+message) reprinted hundreds of times for a single loss. Loss bookkeeping is now driven by
+`follow_cmd.lost` alone, and the message is gated by a `_lost_logged` rising-edge flag, so it prints
+once when the target is lost and re-arms only after the controller reports the target present again.
+
+---
+
+## DataFlash log download
+
+ArduPilot writes its own DataFlash log (`.BIN`) to its own storage — an SD card on a real FCU, a
+local file under SITL — and opens a **new log automatically on every arm**, finalising it on
+disarm. There is no MAVLink message that "starts recording": the FCU already does that. What the
+app adds is the same thing Mission Planner's *Download DataFlash Log Via MAVLink* does — pulling
+that log off the vehicle over the link, so the flight log survives even when the SD card is not
+coming back with the airframe.
+
+**Trigger.** Recording is keyed on the **arm event**, not on the ARM button: an arm from the SGC,
+an RC switch, or Mission Planner all start a log on the FCU, and the app fetches it regardless of
+which one armed the vehicle. `modules/drone_backend/sitl.py:_message_listener` watches the
+`HEARTBEAT` arm bit and fires `_on_vehicle_armed()` on the false→true edge (and `arm()` /
+`disarm()` fire the same hooks, so a link where the listener is mid-`recv_match` still records).
+On the arm edge the arm wall-clock time is saved; on the disarm edge `_on_vehicle_disarmed()`
+launches the download worker.
+
+**Protocol** (`modules/drone_backend/log_download.py`):
+
+1. `LOG_REQUEST_LIST(start=0, end=0xFFFF)` asks the autopilot to enumerate its logs; it answers
+   with one `LOG_ENTRY` per log (id, size, `time_utc`). The request is sent twice, because the
+   first request on a fresh link is easily lost.
+2. For each log, `LOG_REQUEST_DATA(id, ofs, count)` requests one chunk; the autopilot answers with
+   `LOG_DATA`. Requests are issued **one at a time**, the next only after the previous chunk lands,
+   so a slow telemetry link is not swamped (see *Bandwidth* below).
+3. Every `LOG_DATA` reply carries the offset its bytes belong at, and the writer **seeks to that
+   offset** before writing — arrival order is never trusted. A re-sent (duplicate) chunk is consumed
+   and ignored, a reply shorter than requested (ArduPilot caps `LOG_DATA` payloads) advances the
+   request pointer by what actually arrived, and a dropped chunk simply ends the download with a
+   shorter file rather than an exception.
+4. Only a reply that **covers the requested offset** is accepted. ArduPilot streams `LOG_DATA`
+   asynchronously and does not guarantee one reply per request, so the first `LOG_DATA` on the link
+   is often a *stale* answer to an earlier offset. Accepting it makes the writer trail the FCU
+   permanently and the download stalls a few hundred bytes in — observed live as a **7 MB log
+   truncated to 11 KB**. `_await_chunk` drains replies that end at or before the requested offset and
+   waits for the one that covers it.
+
+   This offset-authoritative, stale-draining write is what makes the file a valid DataFlash log. Two
+   earlier bugs produced files that looked plausible but were rejected by
+   [plot.ardupilot.org](https://plot.ardupilot.org/) because the `0xA3` frame markers no longer sat on
+   the boundaries the `FMT` table declared: (a) appending chunks in arrival order, so one duplicated
+   or short reply shifted every byte that followed, and (b) accepting stale asynchronous replies, so
+   the download stalled near the start. `tests/test_log_download.py` downloads under short-reply,
+   duplicate-reply and stale-reply autopilots and asserts the result walks cleanly under strict
+   DataFlash framing and parses under `pymavlink.DFReader` — the parser plot uses.
+
+**Which log.** `time_utc` on each `LOG_ENTRY` identifies the log opened at or after the recorded
+arm time, so only the session's log is fetched. SITL and some FCUs report `time_utc = 0` until the
+clock is set; when no entry carries a usable stamp the filter falls back to downloading every log
+rather than silently fetching nothing. A 2 s negative slack absorbs ground-station/FCU clock skew.
+
+**Where.** Files land in `<repo root>/logs/dataflash/` by default — the path is anchored to the
+repository root, not the working directory, so an IDE run and a shell run from anywhere write to the
+same place. The directory is created as soon as recording is enabled, so it is visible before the
+first flight. Files are named `<vehicle>-<id>-<YYYYMMDD-HHMMSS>.bin` — recognisably
+Mission-Planner-like, with the FCU log id so two downloads of the same vehicle never collide.
+Override the directory with `--log-dir` (or `"log_dir"` in `run_config.json`).
+
+**Enable/disable.** On for `--mode flight` by default (offloading the SD log over telemetry is the
+point), off for `--mode sitl` (the simulator's log already sits on local disk). `--log-download` /
+`--no-log-download` (or `"log_download"` in `run_config.json`) overrides that. The backend API is
+`drone.configure_log_download(enabled, directory=...)`, with `drone.log_download_status()` reporting
+`{enabled, directory, downloading}` for a HUD/telemetry.
+
+**Bandwidth.** The download shares the MAVLink link with live telemetry and the follow loop, so it
+is deliberately gentle: one chunk in flight at a time (`LOG_CHUNK_BYTES = 0xB8`, sized so a request
+and its 200-byte reply fit one datagram), and the worker runs on its own thread so the telemetry
+listener keeps the shared socket. A `CHUNK_TIMEOUT_S` (5 s) silence ends the download instead of
+hanging. There is **no** way to make it faster — that is the trade for not starving the flight loop.
+
+**Session bounds.** One download worker runs at a time; a second disarm while the first is still
+running is refused with `A log download is already running`. `disconnect()` joins an in-flight
+download (bounded at 10 s) before closing the port, so shutdown cannot pull the socket out from
+under it. Every step logs under the `[LOG]` tag.
+
+**Log size is approximate.** `LOG_ENTRY.size` is documented by ArduPilot as possibly-inaccurate, so
+the download does not stop at it: it requests a little past (`LOG_SIZE_SLACK` = 512 bytes) and stops
+only when the FCU answers with a zero-count `LOG_DATA`. A log that is *exactly* `size` bytes
+therefore ends cleanly rather than losing its final frame.
+
+**Validation.** A downloaded log is accepted by `pymavlink.DFReader` — the parser
+[plot.ardupilot.org](https://plot.ardupilot.org/) uses — which is the test that matters. Verified
+live: a reference log from the field (2.9 MB) and a freshly downloaded 7 MB autopilot log both parse
+cleanly (91 530 and 45 959 messages). An **interrupted** download (user abort, link loss) ends with a
+partial trailing frame, which `DFReader` tolerates by ignoring it.
 
 ---
 
@@ -710,15 +865,15 @@ document, is the authoritative schema.** Classes:
 
 | Line | Class |
 | --- | --- |
-| 10 | `TrackingState` (Enum) |
-| 37 | `OverlayConfig` |
-| 145 | `BBox` |
-| 183 | `Point` |
-| 196 | `Detection` |
-| 247 | `TelemetryData` |
-| 278 | `TrackingData` |
-| 315 | `CameraIntrinsics` |
-| 364 | `FrameDetections` |
+| 34 | `TrackingState` (Enum) |
+| 61 | `OverlayConfig` |
+| 169 | `BBox` |
+| 207 | `Point` |
+| 220 | `Detection` |
+| 271 | `TelemetryData` |
+| 308 | `TrackingData` |
+| 345 | `CameraIntrinsics` |
+| 394 | `FrameDetections` |
 
 `FrameDetections` fields with defaults:
 
@@ -740,13 +895,13 @@ document, is the authoritative schema.** Classes:
 | `intrinsics` | `CameraIntrinsics \| None` | `None` |
 
 `to_dict()` rounds `fps` to one decimal place. `from_dict()` applies defaults via
-`.get()`. `intrinsics` is **omitted** from the payload when it is invalid (line 394).
+`.get()`. `intrinsics` is **omitted** from the payload when it is invalid (line 424).
 `TrackingState` is the four-value enum `idle`, `selected`, `tracking`, `lost`.
 
 Inbound commands are handled by `SGCCommandReceiver` in
 `jetson/communication/sgc_receiver.py`, with matching logic in `_find_best_match`, both
 imported at `autonomous_drone_main.py:72` and dispatched at
-`_handle_sgc_command` (`autonomous_drone_main.py:1174`).
+`_handle_sgc_command` (`autonomous_drone_main.py:1219`).
 
 ### Inbound command protocol (SGC → drone)
 
@@ -761,8 +916,8 @@ as `[SGC] ...`.
 | `follow_start` | same as `select_target`, `bbox` optional | runs the takeoff preflight, then starts person-follow |
 | `follow_stop` | — | stops following and holds position |
 | `arm` | — | arms the vehicle in GUIDED with a force-arm (`MAV_CMD_COMPONENT_ARM_DISARM`, `param2=21196`), so the FCU's pre-arm checks are skipped by design — validate them in Mission Planner first; same as the on-screen ARM button |
-| `takeoff` | — | climbs to `TAKEOFF_ALTITUDE` (3 m) — **refused unless the vehicle is already armed**, so send `arm` first |
-| `arm_takeoff` | — | one-click arm + climb: force-arms, waits for the FCU to report armed, then climbs to `TAKEOFF_ALTITUDE` (3 m) in a single flight command — same code path as the on-screen ARM & TAKEOFF button; **refused if the vehicle is already armed** (send `takeoff` instead) or if telemetry never arrived |
+| `takeoff` | — | climbs to `TAKEOFF_ALTITUDE` (2.5 m) — **refused unless the vehicle is already armed**, so send `arm` first |
+| `arm_takeoff` | — | one-click arm + climb: force-arms, waits for the FCU to report armed, then climbs to `TAKEOFF_ALTITUDE` (2.5 m) in a single flight command — same code path as the on-screen ARM & TAKEOFF button; **refused if the vehicle is already armed** (send `takeoff` instead) or if telemetry never arrived |
 | `land` | — | stops following, clears the target and lands; the app keeps running |
 | `disarm` | — | disarms — **refused above 0.5 m altitude**, so send `land` first |
 | **`panic_rtl`** | — | **panic RTL: immediate return to launch, then the app stops streaming and exits** |
@@ -788,7 +943,7 @@ Minimum payloads:
 > refused with `Takeoff refused: vehicle is not armed — press ARM first` and nothing flies.
 
 > **SGC team: `arm_takeoff` is the one-command alternative.** `{"type": "arm_takeoff"}` runs the
-> whole sequence — force-arm, wait for `armed`, climb to `TAKEOFF_ALTITUDE` (3 m) — as **one**
+> whole sequence — force-arm, wait for `armed`, climb to `TAKEOFF_ALTITUDE` (2.5 m) — as **one**
 > flight command, so the `arm` → poll → `takeoff` round trip is optional. It shares its code path
 > with the on-screen ARM & TAKEOFF button, which means it inherits the button's refusals: if the
 > vehicle is **already armed** it answers `Already armed — press TAKEOFF to climb` (send `takeoff`
@@ -803,7 +958,7 @@ Minimum payloads:
 > keeps streaming so the SGC sees the vehicle settle, and the receiver stays open for `disarm`.
 
 `panic_rtl` is exactly what the on-screen `P` key does — it shares one code path,
-`_trigger_panic_rtl` (`autonomous_drone_main.py:1065`), so both sources issue `drone.send_rtl()`,
+`_trigger_panic_rtl` (`autonomous_drone_main.py:1110`), so both sources issue `drone.send_rtl()`,
 stop the detection stream, the command receiver and the camera, and exit. There is **no
 acknowledgement**: the drone console shows `[PANIC] RTL triggered by SGC command`, and on the SGC
 side the detection stream simply goes quiet — that is the acknowledgement.
@@ -1172,8 +1327,8 @@ dot GREEN, text `"ARMED"` and `HUD_TEXT_DIM` label. Dot at `(bx+16, by+15)` radi
 
 **5.3 Takeoff button** — top-right, `150×30`, `bx = w - 278`, `by = 23`, radius 15. Armed
 (clickable): fill `(12,46,32)` / `#202e0c`, border `(60,200,120)` / `#78c83c`, dot GREEN. Text
-is always `f"TAKEOFF {app_config.TAKEOFF_ALTITUDE:.0f}m"` (`"TAKEOFF 3m"` with the shipped
-config). Disarmed: fill `(26,28,34)` / `#221c1a`, border `(70,78,92)` / `#5c4e46`,
+is always `f"TAKEOFF {app_config.TAKEOFF_ALTITUDE:g}m"` (`"TAKEOFF 2.5m"` with the shipped
+config — `:g` keeps the `.5` that `:.0f` used to round away). Disarmed: fill `(26,28,34)` / `#221c1a`, border `(70,78,92)` / `#5c4e46`,
 dot and label `HUD_TEXT_DIM` — i.e. the control is visibly disabled. Dot at `(bx+16, by+15)`
 radius 3; text font 0.42/1 in `(235,238,245)`.
 
@@ -1191,7 +1346,7 @@ the mode pill's column. Disarmed (clickable): fill `(14,34,56)`, border `(70,180
 the ARM styling, because the press starts with an arm. Armed (not clickable): fill `(26,28,34)`,
 border `(70,78,92)`, dot and label `HUD_TEXT_DIM` — its arm step would be a no-op, so the control
 is disabled and the operator uses `TAKEOFF` instead. Label
-`f"ARM & TAKEOFF {app_config.TAKEOFF_ALTITUDE:.0f}m"`; the pill is 190 px wide so the label fits
+`f"ARM & TAKEOFF {app_config.TAKEOFF_ALTITUDE:g}m"`; the pill is 190 px wide so the label fits
 both OpenCV builds seen here (glyph run 104 px on OpenCV 5.0, 135 px on 4.8; `_pill_button`
 allotting `width − 52` for text).
 
@@ -1202,9 +1357,9 @@ margin, so they occupy `x = w-398 … w-8` and never reach the centred mode pill
 | Button | Rect |
 | --- | --- |
 | ARM | `(562, 23, 672, 53)` |
-| TAKEOFF 3m | `(682, 23, 832, 53)` |
+| TAKEOFF 2.5m | `(682, 23, 832, 53)` |
 | LAND | `(842, 23, 952, 53)` |
-| ARM & TAKEOFF 3m (row 2, `by = 55`, height 26) | `(762, 55, 952, 81)` |
+| ARM & TAKEOFF 2.5m (row 2, `by = 55`, height 26) | `(762, 55, 952, 81)` |
 
 Clicking a button calls `_handle_arm_button` / `_handle_takeoff_button` /
 `_handle_land_button` / `_handle_arm_takeoff_button`; the hit tests use
@@ -1236,11 +1391,35 @@ on a `flight-cmd` worker thread and reports the result through the HUD:
 | Phase | Thread | What the operator sees |
 | --- | --- | --- |
 | refusal checks (arm state, telemetry, altitude) | main | immediate red/amber HUD message, nothing sent |
-| `control.arm()` / `takeoff()` / `land()` / `disarm()` | `flight-cmd` worker | cyan `Taking off to 3m...` while it runs, then green success or red failure |
+| `control.arm()` / `takeoff()` / `land()` / `disarm()` | `flight-cmd` worker | cyan `Taking off to 2.5m...` while it runs, then green success or red failure |
 | FCU confirmation | MAVLink listener thread | unchanged — it always ran separately |
 
 `_run_flight_command` also holds `_command_in_flight`, so a second click while a command is running
 is refused with `Another command is still running` instead of sending a duplicate MAVLink command.
+
+**Console logs share one format and never fight the status line.** The loop repaints a single
+`\r`-updated status line every frame (`_console_status`), and a plain `print` from the worker or the
+MAVLink listener landed on top of it — which is what produced jumbled lines such as
+`... IDLESITL: Vehicle armed`. Every log now goes through `modules/logging_util.py`:
+
+| Helper | Purpose |
+| --- | --- |
+| `log(tag, msg)` | prints one standard `[TAG] message` line; clears the live status line first so the log keeps its own row |
+| `set_status_active(bool)` | tells the helper a `\r` status line is on screen (called by `_console_status`) |
+| `clear_status()` | erases the status line without printing |
+
+The status line is **not** blanked with an ANSI `\033[K`. The app runs in PyCharm's Run console,
+which renders the colour escapes but leaves a bare `\033[K` on screen as literal `[K` — so the erase
+is done by overwriting with spaces to the terminal width, and `_console_status` pads its own line the
+same way (measuring visible width with the ANSI escapes stripped). That removes the leftover garbage
+(such as `H[0[K`) that a `\033[K` clear produced even though the log lines themselves were separate.
+
+Tags are a fixed, short set: `[CMD]` for flight-command lifecycle (start / success / refusal /
+failure, including the actual settled takeoff altitude), and `[VEHICLE]`, `[SITL]`, `[SGC]`,
+`[SEND]`, `[LOST]`, `[PANIC]`, `[FAILSAFE]`, `[LINK]`, `[CALIB]`, `[SERVO]`, `[STREAM]`, `[CONFIG]`,
+`[DIST]`, `[READY]`, `[INTRINSICS]`, `[LOG]` for their respective sources. The drone backend and the
+detection sender use the same helper, so `[VEHICLE]`/`[SITL]`/`[SEND]` lines from their own threads no
+longer overwrite the status line.
 
 `modules/drone_backend/sitl.py` no longer uses pymavlink's `motors_armed_wait()` /
 `motors_disarmed_wait()`. Both are `while True: wait_heartbeat()` loops **with no timeout**, so a
@@ -1293,7 +1472,7 @@ This matters because the old code returned as soon as it saw 95 % of the request
 produced the worst possible failure: a confident
 
 ```text
-Airborne — holding at 3m
+Airborne — holding at 2m
 ```
 
 while the vehicle was at 50 m and still climbing. A genuine overshoot — or an autopilot that is not
@@ -1304,6 +1483,14 @@ holding altitude at all — is now an explicit failure, with a hard ceiling of
 Vehicle is climbing away: 1000.0 m above launch (1584.1 m AMSL) and still rising, past the
 594.1 m ceiling. The autopilot is not holding the takeoff altitude. Check the altitude
 controller tuning and whether anything is sending position targets.
+```
+
+On success the message now reports the altitude the vehicle **actually settled at** rather than
+echoing the request — it is a callable success message evaluated after `control.takeoff()` returns,
+so the operator can see the ~1 m SITL overshoot at a glance:
+
+```text
+Airborne — holding at 3.4m (target 2.5m)
 ```
 
 If the vehicle stops short of the ceiling but never settles, takeoff times out and says so:
@@ -1449,8 +1636,8 @@ The overlay spec supplies **no JSON schema, no field types, no message envelope,
 numbers, and no state machine** — only the four-value `tracker_state` enum and a
 name-level field mapping. The sections 5.1/6 prompt rules imply the transitions
 `idle → selected → tracking → lost`, but that state machine is not written down anywhere.
-The authoritative sources are `shared/detection_models.py:363-419` (schema),
-`shared/detection_transport.py` (transport) and `autonomous_drone_main.py:122`
+The authoritative sources are `shared/detection_models.py:394-448` (schema),
+`shared/detection_transport.py` (transport) and `autonomous_drone_main.py:839`
 (`args.sgc_cmd_port`). This is the largest documentation gap in the project; a client cannot
 be implemented against the overlay spec alone.
 
@@ -1496,7 +1683,12 @@ for latency; lower is faster. On Jetson the intended path is hardware H.264 via 
 python -m pytest -q
 ```
 
-Current result: **395 passed, 319 subtests passed**.
+Current result: **621 passed, 415 subtests passed, 12 collection errors, 73 pre-existing
+failures** (`python -m pytest tests/ -q --continue-on-collection-errors`). The 12 collection errors
+and 73 failures are pre-existing and unrelated to the current work (missing legacy modules such as
+`modules.safety_logger`, plus the 3 `TestTestModeContract` guard failures and the 21
+`test_sgc_camera_outage_dispatch.py` failures). An earlier **395 passed** figure in this file was
+stale.
 
 Test files (local only — gitignored, never committed):
 
@@ -1505,11 +1697,12 @@ Test files (local only — gitignored, never committed):
 | `tests/test_servo_mavlink.py` | servo command routing, discovery-cache refresh, consent gates, RC-override watchdog, pulse verification |
 | `tests/test_arm_force.py` | force-arm wire bytes (`param2=21196`), GUIDED gate, arm-state wait error text |
 | `tests/test_arm_takeoff_button.py` | ARM & TAKEOFF second-row geometry, armed gating, arm-then-climb sequence in one flight command, SGC `arm_takeoff` dispatch and parsing |
-| `tests/test_yaw_sign.py` | negated yaw rate at the MAVLink boundary (flight-tested sign) |
+| `tests/test_yaw_sign.py` | negated yaw rate and forward/backward body-X sign at the MAVLink boundary (flight-tested sign) |
 | `tests/test_servo_channels.py` | `plan_drive`, `parse_servo_functions`, gimbal-channel picking, drive constants |
 | `tests/test_link_selection.py` | `--drone-link` precedence, real-FCU fallback, endpoint recognition |
 | `tests/test_sgc_receiver.py` | SGC command parsing, queueing, validation, `panic_rtl` priority |
 | `tests/test_app_config.py` | configuration constants |
+| `tests/test_log_download.py` | DataFlash log download: list request, chunk reassembly into a file, session `time_utc` filter, arm/disarm gating, `--log-dir` default, `api` passthrough |
 | `tests/test_distance_horizontal.py`, `tests/test_h_follow_state_machine.py`, `tests/test_horizontal_live_wiring.py`, `tests/test_selected_diagnostic.py` | distance estimation and follow-state wiring |
 
 The suite is the regression gate for the servo/gimbal work: `TestStaleDiscoveryCache` in
@@ -1748,7 +1941,7 @@ echo 'KERNEL=="ttyTHS1", MODE="0666"' | sudo tee /etc/udev/rules.d/99-ttyTHS1.ru
 desktop-camera data using the estimator's own equation — it is a placeholder, not a
 calibration, and will be wrong for a different lens. See
 [the circular-fit warning](#circular-fit-warning-the-0133-m-baseline-is-not-valid-accuracy).
-Resolution differences are handled automatically (`autonomous_drone_main.py:1536` calls
+Resolution differences are handled automatically (`autonomous_drone_main.py:1591` calls
 `scaled_to_frame`), but a different **lens** is not.
 
 **6. Replace the mock LiDAR** (`modules/lidar_backend/mock.py`) if a real LiDAR is fitted.
@@ -1893,7 +2086,7 @@ present. **Measure the Jetson camera's intrinsics with the chessboard first** �
 **The geometric-vision error figures below are circular and must not be used as expected
 field accuracy on the Orin Nano.**
 
-`modules/distance_estimator/vision.py:75` computes:
+`modules/distance_estimator/vision.py:194` computes:
 
 ```python
 distance_m = (obj_h * float(self._intrinsics.fy)) / float(bbox_height_px)
@@ -2023,11 +2216,11 @@ example `YOLO/yolo11s.pt` is correctly ignored.
 
 The model is a **hard runtime requirement**:
 
-- `autonomous_drone_main.py:110` — the `--model-path` default is `YOLO/yolo11n.pt`
-- `autonomous_drone_main.py:942` — `detector.initialize_detector(args.model_path, …)`
+- `autonomous_drone_main.py:117` — the `--model-path` default is `YOLO/yolo11n.pt`
+- `autonomous_drone_main.py:987` — `detector.initialize_detector(args.model_path, …)`
 - `modules/yolo11_detector/model.py:6-17` — loads a **local** path behind an `os.path.exists`
   guard
-- `modules/yolo11_detector/api.py:57` — API surface
+- `modules/yolo11_detector/api.py:58` — API surface
 - `tools/audit_person_follow_dataflow.py:25` — tooling
 
 The default path is **relative**, so it resolves against the current working directory. There
@@ -2038,7 +2231,7 @@ Jetson document says "Copy", which presupposes a source file.
 Failure mode if the weights are untracked: `os.path.exists` returns False →
 `FileNotFoundError` at `model.py:10` → caught by the broad `except Exception` at line 15 →
 `load_model` returns `(None, [])` → `api.py:62-63` returns `False` →
-`autonomous_drone_main.py:942` aborts **before flight setup**. Eight capabilities fail at
+`autonomous_drone_main.py:987` aborts **before flight setup**. Eight capabilities fail at
 once: production behaviour, Jetson deployment, SITL testing, mock testing, calibration,
 distance estimation, person-follow, and SGC communication — plus both Jetson checklists'
 copy steps and their CUDA smoke tests.

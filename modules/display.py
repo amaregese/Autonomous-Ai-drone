@@ -553,7 +553,7 @@ def draw_takeoff_button(img, armed: bool = False):
         fill, border, dot_c = (26, 28, 34), (70, 78, 92), HUD_TEXT_DIM
 
     return _pill_button(img, bx, by, _TAKEOFF_BUTTON_W, _TAKEOFF_BUTTON_H,
-                        f"TAKEOFF {app_config.TAKEOFF_ALTITUDE:.0f}m",
+                        f"TAKEOFF {app_config.TAKEOFF_ALTITUDE:g}m",
                         fill, border, dot_c, enabled=armed)
 
 
@@ -591,7 +591,7 @@ def draw_arm_takeoff_button(img, armed: bool = False):
 
     return _pill_button(img, bx, by, _ARM_TAKEOFF_BUTTON_W,
                         _ARM_TAKEOFF_BUTTON_H,
-                        f"ARM & TAKEOFF {app_config.TAKEOFF_ALTITUDE:.0f}m",
+                        f"ARM & TAKEOFF {app_config.TAKEOFF_ALTITUDE:g}m",
                         fill, border, dot_c, enabled=enabled)
 
 

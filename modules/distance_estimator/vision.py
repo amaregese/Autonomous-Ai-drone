@@ -371,6 +371,69 @@ class VisionDistanceEstimator:
         )
 
 
+def _diagnose_horizontal_failure(
+    estimator,
+    detection,
+    frame_w: int,
+    frame_h: int,
+    altitude_m: Optional[float],
+) -> str:
+    """Explain, in one phrase, why a horizontal measurement would be invalid.
+
+    Diagnostic helper for the console: it mirrors the checks
+    :func:`estimate_detection_horizontal` performs, in the same order, and
+    returns a short human-readable reason. It returns ``"unknown failure"`` when
+    every input looks usable, i.e. the failure (if any) is not one this helper
+    can name. It never raises.
+    """
+    if estimator is None or not getattr(estimator, "geometry_available", False):
+        return "intrinsics unavailable"
+
+    if altitude_m is None:
+        return "altitude unavailable"
+    if not isinstance(altitude_m, (int, float)) or not math.isfinite(altitude_m):
+        return "altitude invalid/non-finite"
+    if altitude_m < 0.0:
+        return f"altitude negative ({altitude_m:g} m)"
+
+    height = getattr(detection, "height", None)
+    if height is None or not isinstance(height, (int, float)) or not math.isfinite(height) or height <= 0.0:
+        return f"bbox height invalid ({height})"
+
+    width = getattr(detection, "width", None)
+    if width is not None and (
+        not isinstance(width, (int, float)) or not math.isfinite(width) or width <= 0.0
+    ):
+        return f"bbox width invalid ({width})"
+
+    confidence = getattr(detection, "confidence", None)
+    if (
+        confidence is None
+        or not isinstance(confidence, (int, float))
+        or not math.isfinite(confidence)
+        or confidence <= 0.0
+    ):
+        return f"detection confidence invalid ({confidence})"
+
+    left = getattr(detection, "Left", None)
+    bottom = getattr(detection, "Bottom", None)
+    if left is None or bottom is None:
+        return "pixel coords unavailable"
+
+    measurement = estimate_detection_horizontal(
+        estimator, detection, frame_w, frame_h, altitude_m
+    )
+    if measurement.valid:
+        return "unknown failure"
+
+    # Inputs were usable, so the geometry itself is the likely culprit: the
+    # target reads as closer than the camera is high (slant <= altitude).
+    return (
+        f"geometry impossible (slant <= camera height {altitude_m:g} m; "
+        "target not out on the ground plane)"
+    )
+
+
 def estimate_detection(estimator, detection, frame_w: int, frame_h: int) -> VisionMeasurement:
     """Measure one detection with the same geometric estimator used by the diagnostic tool."""
     class_name = getattr(detection, "class_name", "")

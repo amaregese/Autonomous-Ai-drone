@@ -6,6 +6,7 @@ import ipaddress
 import math
 import os
 import socket
+import re
 import threading
 
 os.environ.setdefault("OPENCV_LOG_LEVEL", "FATAL")
@@ -20,8 +21,13 @@ sys.path.insert(1, 'modules')
 from modules import lidar, control, detector_yolo11 as detector
 from modules import drone
 from modules.follow_diagnostics import selected_diagnostic
+from modules.logging_util import log as _log, set_status_active as _set_status_active
 from modules.run_config import config_source, get_run_defaults, save_default
 from modules.app_config import (
+    ASSUME_TARGET_AT_HOME_ELEVATION,
+    BENCH_CAMERA_HEIGHT_M,
+    CAMERA_MOUNTED_ON_VEHICLE,
+    CAMERA_OFFSET_BELOW_VEHICLE_M,
     DISARM_MAX_ALT,
     MAX_ALT,
     TAKEOFF_ALTITUDE,
@@ -31,6 +37,7 @@ from modules.app_config import (
     MIN_FOLLOW_GPS_FIX,
     MIN_FOLLOW_MODE,
 )
+from modules.altitude import compute_camera_height
 from modules.display import (
     annotate_selection_overlay,
     annotate_tracking_overlay,
@@ -147,6 +154,12 @@ parser.add_argument('--allow-rc-override', action='store_true',
                          'default: an override writes RC *inputs*, and ArduPilot reads some '
                          'of them straight into flight control. Only enable this after '
                          'confirming the mapped input is spare on this vehicle')
+_add_flag(parser, '--log-download', '--no-log-download', 'log_download', None,
+          'Download the vehicle DataFlash log over MAVLink after each disarm '
+          '(default: on for flight, off for sitl)')
+parser.add_argument('--log-dir', type=str, default=_default('log_dir', None),
+                    help='Directory for downloaded DataFlash logs '
+                         '(default: logs/dataflash under the working directory)')
 
 args = parser.parse_args()
 _SGC_HOST_FROM_CLI = any(
@@ -156,6 +169,13 @@ if _RUN_DEFAULTS:
     print(f"[CONFIG] defaults from {config_source()} "
           f"(command-line flags still win; --help lists every option)")
 modules.app_config.OBJECT_HEIGHT = args.object_height
+
+# DataFlash log recording: on for a real flight by default, off for SITL (the
+# simulator's log already sits on local disk). An explicit --log-download /
+# --no-log-download, or a "log_download" key, wins over that default.
+if args.log_download is None:
+    args.log_download = (args.mode == 'flight')
+drone.configure_log_download(args.log_download, directory=args.log_dir)
 
 
 tracking_session = TrackingSession()
@@ -182,6 +202,7 @@ _follow_frame_size = None
 
 _lost_start_time = None
 _rtl_triggered = False
+_lost_logged = False
 _following = False
 _home_alt = 0.0
 _sgc_peer_warned = False
@@ -190,9 +211,10 @@ _sitl_started = False
 
 
 def _reset_lost_state():
-    global _lost_start_time, _rtl_triggered
+    global _lost_start_time, _rtl_triggered, _lost_logged
     _lost_start_time = None
     _rtl_triggered = False
+    _lost_logged = False
 
 
 def _preflight_follow():
@@ -281,7 +303,7 @@ def _check_link_health():
         return
     _last_link_warning_at = now
     msg = f"FCU TELEMETRY LOST ({age:.0f}s) - check the MAVLink link"
-    print(f"[LINK] {msg}")
+    _log("LINK", msg)
     set_hud_status(msg, (0, 0, 255), 5.0)
 
 
@@ -298,6 +320,10 @@ def _run_flight_command(action, started_msg, success_msg, failure_prefix):
     worker thread and report the result through the HUD. The quick pre-flight
     checks stay on the main thread so refusals are still instant.
 
+    ``success_msg`` may be a plain string or a zero-arg callable; a callable is
+    evaluated *after* ``action`` returns so it can report the vehicle's actual
+    post-command state (e.g. the altitude it really settled at).
+
     Returns True if the command was started, False if one is already running.
     """
     global _command_in_flight
@@ -305,23 +331,24 @@ def _run_flight_command(action, started_msg, success_msg, failure_prefix):
     with _command_lock:
         if _command_in_flight:
             msg = "Another command is still running - wait for it to finish"
-            print(msg)
+            _log("CMD", msg)
             set_hud_status(msg, (255, 255, 0), 3.0)
             return False
         _command_in_flight = True
 
-    print(started_msg)
+    _log("CMD", started_msg)
     set_hud_status(started_msg, (0, 255, 255), 3.0)
 
     def worker():
         global _command_in_flight
         try:
             action()
-            print(success_msg)
-            set_hud_status(success_msg, (0, 200, 0), 3.0)
+            msg = success_msg() if callable(success_msg) else success_msg
+            _log("CMD", msg)
+            set_hud_status(msg, (0, 200, 0), 3.0)
         except Exception as exc:
             msg = f"{failure_prefix}{exc}"
-            print(msg)
+            _log("CMD", msg)
             set_hud_status(msg, (0, 0, 255), 4.0)
         finally:
             with _command_lock:
@@ -335,7 +362,7 @@ def _handle_arm_button():
     try:
         if drone.is_armed():
             msg = "Vehicle is already armed"
-            print(msg)
+            _log("CMD", msg)
             set_hud_status(msg, (255, 255, 0), 3.0)
             return
     except Exception:
@@ -344,13 +371,28 @@ def _handle_arm_button():
     problems = _airframe_readiness_problems()
     if problems:
         msg = "Arming refused: " + "; ".join(problems) + "."
-        print(msg)
+        _log("CMD", msg)
         set_hud_status(msg, (0, 0, 255), 4.0)
         return
 
     _run_flight_command(control.arm, "Arming vehicle...",
-                        f"Vehicle armed — TAKEOFF {TAKEOFF_ALTITUDE:.0f}m is now available",
+                        f"Vehicle armed — TAKEOFF {TAKEOFF_ALTITUDE:g}m is now available",
                         "Arming failed: ")
+
+
+def _holding_message():
+    """Success text for a takeoff, built from the altitude actually reached.
+
+    ``control.takeoff`` only returns once the vehicle has settled, so read the
+    real altitude here rather than echoing the requested setpoint (SITL
+    overshoots by a metre or so; on hardware the two are much closer). Falls
+    back to the target when telemetry is momentarily unavailable.
+    """
+    target = TAKEOFF_ALTITUDE
+    altitude = _ground_altitude()
+    if altitude is None:
+        return f"Airborne — holding at {target:g}m (target {target:g}m)"
+    return f"Airborne — holding at {altitude:.1f}m (target {target:g}m)"
 
 
 def _handle_takeoff_button():
@@ -360,14 +402,14 @@ def _handle_takeoff_button():
         armed = False
     if not armed:
         msg = "Takeoff refused: vehicle is not armed — press ARM first"
-        print(msg)
+        _log("CMD", msg)
         set_hud_status(msg, (0, 0, 255), 4.0)
         return
 
     problems = _airframe_readiness_problems()
     if problems:
         msg = "Takeoff refused: " + "; ".join(problems) + "."
-        print(msg)
+        _log("CMD", msg)
         set_hud_status(msg, (0, 0, 255), 4.0)
         return
 
@@ -375,8 +417,8 @@ def _handle_takeoff_button():
         control.takeoff(TAKEOFF_ALTITUDE)
         control.set_flight_altitude(TAKEOFF_ALTITUDE)
 
-    _run_flight_command(climb, f"Taking off to {TAKEOFF_ALTITUDE:.0f}m...",
-                        f"Airborne — holding at {TAKEOFF_ALTITUDE:.0f}m",
+    _run_flight_command(climb, f"Taking off to {TAKEOFF_ALTITUDE:g}m...",
+                        _holding_message,
                         "Takeoff failed: ")
 
 
@@ -391,7 +433,7 @@ def _handle_arm_takeoff_button():
     try:
         if drone.is_armed():
             msg = "Already armed — press TAKEOFF to climb"
-            print(msg)
+            _log("CMD", msg)
             set_hud_status(msg, (255, 255, 0), 3.0)
             return
     except Exception:
@@ -400,7 +442,7 @@ def _handle_arm_takeoff_button():
     problems = _airframe_readiness_problems()
     if problems:
         msg = "Arm & takeoff refused: " + "; ".join(problems) + "."
-        print(msg)
+        _log("CMD", msg)
         set_hud_status(msg, (0, 0, 255), 4.0)
         return
 
@@ -411,8 +453,8 @@ def _handle_arm_takeoff_button():
 
     _run_flight_command(
         arm_and_climb,
-        f"Arming and taking off to {TAKEOFF_ALTITUDE:.0f}m...",
-        f"Airborne — holding at {TAKEOFF_ALTITUDE:.0f}m",
+        f"Arming and taking off to {TAKEOFF_ALTITUDE:g}m...",
+        _holding_message,
         "Arm & takeoff failed: ")
 
 
@@ -424,7 +466,7 @@ def _handle_land_button():
         _following = False
         _reset_lost_state()
         follow_controller.reset()
-        print("[LAND] Person-follow stopped")
+        _log("CMD", "Person-follow stopped")
     detector.clear_selection()
 
     _run_flight_command(control.land, "Landing...",
@@ -440,6 +482,25 @@ def _ground_altitude():
         return None
 
 
+def _camera_height_above_target():
+    """Camera height above the target's ground plane, or None when unknown.
+
+    The horizontal ground-distance geometry needs the camera's height, which is
+    not the vehicle AGL. When ``CAMERA_MOUNTED_ON_VEHICLE`` is False (bench
+    webcam / SITL testing) the configured ``BENCH_CAMERA_HEIGHT_M`` is used,
+    because the vehicle AGL does not describe the camera. Otherwise the camera
+    height is derived from vehicle AGL minus the mount offset via
+    ``compute_camera_height`` (see modules/altitude.py).
+    """
+    if not CAMERA_MOUNTED_ON_VEHICLE:
+        return BENCH_CAMERA_HEIGHT_M if BENCH_CAMERA_HEIGHT_M and BENCH_CAMERA_HEIGHT_M > 0.0 else None
+    return compute_camera_height(
+        _ground_altitude(),
+        CAMERA_OFFSET_BELOW_VEHICLE_M,
+        ASSUME_TARGET_AT_HOME_ELEVATION,
+    )
+
+
 def _handle_disarm_action():
     """Disarm the vehicle. Refused while airborne - a disarmed drone falls."""
     global _following
@@ -450,19 +511,19 @@ def _handle_disarm_action():
         armed = False
     if not armed:
         msg = "Vehicle is already disarmed"
-        print(msg)
+        _log("CMD", msg)
         set_hud_status(msg, (255, 255, 0), 3.0)
         return
 
     altitude = _ground_altitude()
     if altitude is None:
         msg = "Disarm refused: cannot read altitude - land first"
-        print(msg)
+        _log("CMD", msg)
         set_hud_status(msg, (0, 0, 255), 4.0)
         return
     if altitude > DISARM_MAX_ALT:
         msg = f"Disarm refused: airborne at {altitude:.1f}m (limit {DISARM_MAX_ALT:.1f}m) - land first"
-        print(msg)
+        _log("CMD", msg)
         set_hud_status(msg, (0, 0, 255), 4.0)
         return
 
@@ -471,9 +532,6 @@ def _handle_disarm_action():
         _reset_lost_state()
         follow_controller.reset()
 
-    msg = "Disarming vehicle..."
-    print(msg)
-    set_hud_status(msg, (0, 255, 255), 3.0)
     _run_flight_command(control.disarm, "Disarming vehicle...",
                         "Vehicle disarmed - motors are off",
                         "Disarm failed: ")
@@ -1057,8 +1115,8 @@ def _check_sgc_peer():
         return
     _sgc_peer_warned = True
     msg = f"SGC is at {peer}, not {sgc_host}"
-    print(f"[SGC] {msg} - detections are going to the wrong machine. "
-          f"Restart with --sgc-host {peer}")
+    _log("SGC", f"{msg} - detections are going to the wrong machine. "
+                f"Restart with --sgc-host {peer}")
     set_hud_status(msg, (255, 200, 0), 6.0)
 
 
@@ -1073,7 +1131,7 @@ def _trigger_panic_rtl(source: str) -> None:
     if _panic_rtl_active:
         return
     _panic_rtl_active = True
-    print(f"[PANIC] RTL triggered by {source}")
+    _log("PANIC", f"RTL triggered by {source}")
     set_hud_status("PANIC RTL - returning to launch", (0, 0, 255), 6.0)
     _failsafe_rtl(f"Panic RTL from {source}")
 
@@ -1158,16 +1216,16 @@ def _servo_worker():
         try:
             drone.send_servo(channel=channel, pulse=pulse, source=source,
                              allow_rc_override=args.allow_rc_override)
-            print(f"[SGC] Servo: ch{channel} -> {pulse}us ({source})")
+            _log("SGC", f"Servo: ch{channel} -> {pulse}us ({source})")
         except (TypeError, ValueError) as exc:
             msg = f"Servo refused: {exc}"
-            print(f"[SGC] {msg}")
+            _log("SGC", msg)
             set_hud_status(msg, (0, 0, 255), 4.0)
         except Exception as exc:
             # The worker must outlive a failed write: the next gimbal command
             # still has to go out.
             msg = f"Servo command failed: {exc}"
-            print(f"[SGC] {msg}")
+            _log("SGC", msg)
             set_hud_status(msg, (0, 0, 255), 4.0)
 
 
@@ -1181,14 +1239,14 @@ def _handle_sgc_command(cmd, detections):
             detector.select_object(matched)
             _following = False
             _reset_lost_state()
-            print(f"[SGC] Selected: {matched.class_name} ({matched.confidence * 100:.1f}%)")
+            _log("SGC", f"Selected: {matched.class_name} ({matched.confidence * 100:.1f}%)")
         else:
-            print(f"[SGC] No match for {cmd.class_name} bbox={cmd.bbox}")
+            _log("SGC", f"No match for {cmd.class_name} bbox={cmd.bbox}")
     elif cmd.command_type == "follow_start":
         problems = _preflight_follow()
         if problems:
             msg = "Cannot follow: " + "; ".join(problems) + "."
-            print(f"[SGC] {msg}")
+            _log("SGC", msg)
             set_hud_status(msg, (0, 0, 255), 4.0)
             return
         if cmd.bbox is None:
@@ -1196,7 +1254,7 @@ def _handle_sgc_command(cmd, detections):
                 _following = True
                 _reset_lost_state()
                 follow_controller.reset()
-                print("[SGC] Follow started")
+                _log("SGC", "Follow started")
             return
         matched = _find_best_match(cmd.bbox, cmd.class_name, detections)
         if matched is not None:
@@ -1204,40 +1262,40 @@ def _handle_sgc_command(cmd, detections):
             _following = True
             _reset_lost_state()
             follow_controller.reset()
-            print(f"[SGC] Following: {matched.class_name} ({matched.confidence * 100:.1f}%)")
+            _log("SGC", f"Following: {matched.class_name} ({matched.confidence * 100:.1f}%)")
         else:
-            print(f"[SGC] No match for {cmd.class_name} bbox={cmd.bbox}")
+            _log("SGC", f"No match for {cmd.class_name} bbox={cmd.bbox}")
     elif cmd.command_type == "deselect_target":
         if detector.get_tracking_status():
             detector.clear_selection(preserve_lost=True)
             _following = False
-            print("[SGC] Selection cleared (lost state preserved for popup)")
+            _log("SGC", "Selection cleared (lost state preserved for popup)")
         else:
             detector.clear_selection()
             _following = False
             _reset_lost_state()
-            print("[SGC] Selection cleared")
+            _log("SGC", "Selection cleared")
     elif cmd.command_type == "follow_stop":
         _following = False
         _reset_lost_state()
-        print("[SGC] Follow stopped")
+        _log("SGC", "Follow stopped")
     elif cmd.command_type == "arm":
-        print("[SGC] Arm requested")
+        _log("SGC", "Arm requested")
         _handle_arm_button()
     elif cmd.command_type == "takeoff":
-        print("[SGC] Takeoff requested")
+        _log("SGC", "Takeoff requested")
         _handle_takeoff_button()
     elif cmd.command_type == "arm_takeoff":
         # Same one-click sequence as the on-screen ARM & TAKEOFF button: the
         # arm and the climb run inside one _run_flight_command, so SGC does not
         # have to wait for armed==true in telemetry between the two phases.
-        print("[SGC] Arm & takeoff requested")
+        _log("SGC", "Arm & takeoff requested")
         _handle_arm_takeoff_button()
     elif cmd.command_type == "land":
-        print("[SGC] Land requested")
+        _log("SGC", "Land requested")
         _handle_land_button()
     elif cmd.command_type == "disarm":
-        print("[SGC] Disarm requested")
+        _log("SGC", "Disarm requested")
         _handle_disarm_action()
     elif cmd.command_type == "panic_rtl":
         _trigger_panic_rtl("SGC command")
@@ -1270,11 +1328,11 @@ def _handle_sgc_command(cmd, detections):
             _queue_servo_command(channel, pulse, source)
         except (TypeError, ValueError) as exc:
             msg = f"Servo refused: {exc}"
-            print(f"[SGC] {msg}")
+            _log("SGC", msg)
             set_hud_status(msg, (0, 0, 255), 4.0)
     elif cmd.command_type:
         msg = f"Unknown SGC command: {cmd.command_type}"
-        print(f"[SGC] {msg}")
+        _log("SGC", msg)
         set_hud_status("Unknown SGC command", (0, 0, 255), 4.0)
 
 
@@ -1427,6 +1485,14 @@ def _selected_distance(selected_obj, movement):
     return distance if math.isfinite(distance) and distance > 0.0 else None
 
 
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+
+
+def _visible_len(text: str) -> int:
+    """Length of ``text`` with ANSI colour escapes removed."""
+    return len(_ANSI_RE.sub("", text))
+
+
 def _console_status(mode: str, movement: dict | None, selected_obj, tracker_state: str = "idle", rtl_countdown: float = -1, following: bool = False) -> None:
     cols = shutil.get_terminal_size().columns
     parts = []
@@ -1481,9 +1547,11 @@ def _console_status(mode: str, movement: dict | None, selected_obj, tracker_stat
         parts.append("\033[2mIDLE\033[0m")
 
     line = "  ".join(parts)
-    if len(line) >= cols:
-        line = line[:cols - 1]
-    print(f"\r{line}\033[K", end="", flush=True)
+    visible = _visible_len(line)
+    pad = max(cols - 1 - visible, 0)
+    sys.stdout.write(f"\r{line}" + " " * pad)
+    sys.stdout.flush()
+    _set_status_active(True)
 
 
 def _follow_movement_dict(cmd):
@@ -1546,7 +1614,7 @@ def _refresh_follow_estimator(frame_w=None, frame_h=None, force=False):
 
 
 def main_loop():
-    global _last_infer_time, _lost_start_time, _rtl_triggered, _following
+    global _last_infer_time, _lost_start_time, _rtl_triggered, _lost_logged, _following
     global _fx, _fy, _cx, _cy, _calib_w, _calib_h
 
     tracking_session.reset_loss_state()
@@ -1581,7 +1649,7 @@ def main_loop():
                 _calib_h = intr.get("calib_h") or height
                 streamer.set_intrinsics(_fx, _fy, _cx, _cy, calib_w=_calib_w, calib_h=_calib_h)
                 _refresh_follow_estimator(width, height, force=True)
-                print(f"[CALIB] Calibration complete! fy={_fy:.1f} — distance estimate updated.")
+                _log("CALIB", f"Calibration complete! fy={_fy:.1f} — distance estimate updated.")
 
         if sgc_receiver is not None:
             # Drain the whole queue each frame so a burst (arm then takeoff, or
@@ -1598,7 +1666,7 @@ def main_loop():
                         # A malformed packet must never take the flight loop
                         # down while the vehicle is airborne.
                         msg = f"Bad SGC command '{sgc_cmd.command_type}': {exc}"
-                        print(f"[SGC] {msg}")
+                        _log("SGC", msg)
                         set_hud_status("SGC command rejected", (0, 0, 255), 4.0)
                     if _panic_rtl_active:
                         break
@@ -1609,7 +1677,7 @@ def main_loop():
         annotate_detections(
             _distance_estimator._vision if _distance_estimator else None,
             detections, width, height,
-            altitude_m=_ground_altitude(),
+            altitude_m=_camera_height_above_target(),
             horizontal_classes={modules.app_config.FOLLOW_TARGET_CLASS},
         )
         tracking_session.set_frame_size(width, height, DISPLAY_WIDTH, DISPLAY_HEIGHT)
@@ -1676,14 +1744,29 @@ def main_loop():
                 drone.send_movement_command_YAW(0)
                 drone.hold_position()
 
-        if selected_obj is not None and not is_tracking_lost:
+        # Loss bookkeeping is driven by the follow controller's own verdict
+        # (``follow_cmd.lost``), not the detector's ``is_tracking_lost``: the two
+        # can disagree on the same frame, and keying the reset off the detector
+        # cleared ``_lost_start_time`` every frame, so the "target lost" message
+        # (and the later timeout message) reprinted hundreds of times per loss.
+        target_present = selected_obj is not None and not is_tracking_lost
+        if not _following and target_present:
             _lost_start_time = None
             _rtl_triggered = False
+            _lost_logged = False
 
-        if _following and follow_cmd.lost and _lost_start_time is None:
-            _lost_start_time = time.time()
+        if _following and not follow_cmd.lost:
+            _lost_start_time = None
             _rtl_triggered = False
-            print("[LOST] Target lost — holding position until re-acquired")
+            _lost_logged = False
+
+        if _following and follow_cmd.lost:
+            if _lost_start_time is None:
+                _lost_start_time = time.time()
+                _rtl_triggered = False
+            if not _lost_logged:
+                _lost_logged = True
+                _log("LOST", "Target lost — holding position until re-acquired")
 
         rtl_countdown = -1
         if _following:
@@ -1693,12 +1776,12 @@ def main_loop():
                 if not _rtl_triggered:
                     _rtl_triggered = True
                     if follow_controller.config.rtl_on_loss:
-                        print(f"[LOST] Target lost for {loss_timeout:.0f}s — initiating RTL")
+                        _log("LOST", f"Target lost for {loss_timeout:.0f}s — initiating RTL")
                         drone.send_rtl()
                         detector.clear_selection()
                         _following = False
                     else:
-                        print(f"[LOST] Target lost for {loss_timeout:.0f}s — hovering (RTL disabled)")
+                        _log("LOST", f"Target lost for {loss_timeout:.0f}s — hovering (RTL disabled)")
                         set_hud_status("Target lost - hovering", (255, 255, 0), 3.0)
                 rtl_countdown = 0
             elif lost_elapsed > 0:
@@ -1774,12 +1857,12 @@ def land():
 
 
 def _failsafe_rtl(reason):
-    print(f"\n[FAILSAFE] {reason}")
-    print("[FAILSAFE] Issuing RTL — vehicle will return to launch")
+    _log("FAILSAFE", reason)
+    _log("FAILSAFE", "Issuing RTL — vehicle will return to launch")
     try:
         drone.send_rtl()
     except Exception as exc:
-        print(f"[FAILSAFE] RTL command failed: {exc}")
+        _log("FAILSAFE", f"RTL command failed: {exc}")
     try:
         drone.disconnect()
     except Exception:

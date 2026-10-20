@@ -14,7 +14,7 @@ TRACKING_LOST_THRESHOLD = 30.0
 # Distance (m) -> forward cruise speed (m/s). Distances past the last
 # breakpoint are capped at FOLLOW_MAX_SPEED_MPS.
 FOLLOW_SPEED_PROFILE = [
-    (2.0, 0.0),   # <= 2.0 m  -> hover / zero velocity
+    (2.0, 0.0),   # <= 2.0 m  -> 0.0 m/s
     (3.0, 0.3),   # 2.0-3.0 m -> 0.3 m/s
     (5.0, 0.6),   # 3.0-5.0 m -> 0.6 m/s
     (8.0, 1.0),   # 5.0-8.0 m -> 1.0 m/s
@@ -36,22 +36,45 @@ FOLLOW_MAX_DETECTION_AGE_S = 0.5
 # H < FOLLOW_DISTANCE - DISTANCE_TOLERANCE -> TOO_CLOSE (move backward at
 # FOLLOW_REVERSE_SPEED), H > FOLLOW_DISTANCE + DISTANCE_TOLERANCE -> TOO_FAR
 # (forward), otherwise HOLD (zero forward speed).
-FOLLOW_DISTANCE = 4.0
+FOLLOW_DISTANCE = 3.0
 DISTANCE_TOLERANCE = 0.5
 # Fixed reverse (backward) cruise speed used for TOO_CLOSE. Deliberately not
 # proportional to how close the target is.
 FOLLOW_REVERSE_SPEED = 0.3
 
+# --- Camera height above the target's ground plane -------------------------------
+# The horizontal ground-distance geometry needs the CAMERA's height above the
+# ground the target stands on, not the vehicle's altitude above its launch point.
+# See modules/altitude.py:compute_camera_height.
+#
+# CAMERA_MOUNTED_ON_VEHICLE:
+#   True  -> the camera is rigidly mounted on the vehicle, so its height is
+#            derived from vehicle AGL minus CAMERA_OFFSET_BELOW_VEHICLE_M.
+#   False -> the camera is a bench webcam (SITL / desk testing), so the vehicle
+#            AGL is meaningless; BENCH_CAMERA_HEIGHT_M is used instead. This is
+#            the trial/test default.
+# ASSUME_TARGET_AT_HOME_ELEVATION: the target is assumed to stand at the same
+#   elevation as the vehicle's home. When False, no camera height is available
+#   and the horizontal distance stays invalid.
+CAMERA_MOUNTED_ON_VEHICLE = False
+ASSUME_TARGET_AT_HOME_ELEVATION = True
+# How far the camera sits below the vehicle's altitude reference (positive =
+# below). Used only when CAMERA_MOUNTED_ON_VEHICLE is True.
+CAMERA_OFFSET_BELOW_VEHICLE_M = 0.15
+# Camera height above the target's ground plane for bench/webcam testing, when
+# the vehicle AGL does not describe the camera. ~0.3 m is a typical desk webcam.
+BENCH_CAMERA_HEIGHT_M = 0.3
+
 # --- Vehicle altitude setpoints (metres above home) ------------------------------
 # TAKEOFF_ALTITUDE: altitude the vehicle should climb to during takeoff.
-TAKEOFF_ALTITUDE = 3.0
+TAKEOFF_ALTITUDE = 2.5
 # FOLLOW_ALTITUDE: desired vehicle altitude while following the target.
-FOLLOW_ALTITUDE = 3.0
+FOLLOW_ALTITUDE = 2.5
 # ALTITUDE_TOLERANCE: acceptable deviation around the desired follow altitude.
 ALTITUDE_TOLERANCE = 0.5
 
 # Preflight floor for starting a follow: refuse below 2.0 m. Deliberately a
-# fixed floor well under the 3.0 m cruise/takeoff altitude, so the vehicle can
+# fixed floor at or under the 2.5 m cruise/takeoff altitude, so the vehicle can
 # be commanded to follow while still climbing to or settling at its flight
 # altitude. It stays comfortably above the 0.5m on-the-ground check in
 # _preflight_follow.

@@ -40,3 +40,6 @@ desktop.ini
 .env
 venv/
 .venv/
+
+# Runtime log download output
+logs/

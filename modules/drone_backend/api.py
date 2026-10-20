@@ -5,10 +5,22 @@ from modules.drone_backend.mock_vehicle import MockVehicle
 _backend_name = "mock"
 _vehicle = None
 
+# DataFlash log-download settings, held here rather than pushed straight to the
+# backend. The entry point configures this at import time, but the backend is
+# only selected later (``set_backend`` runs inside ``setup``), so a direct
+# passthrough at configure time would hit ``_get_backend() is None`` and be
+# silently dropped. Keeping the settings here and re-applying them in
+# ``set_backend`` makes the order irrelevant.
+_log_download_enabled = False
+_log_download_dir = None
+
 
 def set_backend(backend_name):
     global _backend_name
     _backend_name = backend_name
+    backend = _get_backend()
+    if backend is not None and hasattr(backend, "configure_log_download"):
+        backend.configure_log_download(_log_download_enabled, directory=_log_download_dir)
 
 
 def _get_backend():
@@ -308,3 +320,33 @@ def send_rtl():
     if backend is not None:
         return backend.send_rtl()
     print("Mock: RTL requested")
+
+
+def configure_log_download(enabled, directory=None):
+    """Enable/disable DataFlash log recording and set the save directory.
+
+    Recording downloads the vehicle's own DataFlash log over MAVLink after a
+    disarm (Mission-Planner style). The settings are remembered here and applied
+    to the backend immediately and again whenever ``set_backend`` runs, so this
+    can be called before the backend is chosen. In mock mode there is no
+    autopilot to download from, so it records the intent and nothing else.
+    """
+    global _log_download_enabled, _log_download_dir
+    _log_download_enabled = bool(enabled)
+    if directory:
+        _log_download_dir = directory
+    backend = _get_backend()
+    if backend is not None and hasattr(backend, "configure_log_download"):
+        return backend.configure_log_download(enabled, directory=directory)
+
+
+def log_download_status():
+    """Recording config and live download state, for the HUD/telemetry."""
+    backend = _get_backend()
+    if backend is not None and hasattr(backend, "log_download_status"):
+        return backend.log_download_status()
+    return {
+        "enabled": _log_download_enabled,
+        "directory": _log_download_dir or "logs/dataflash",
+        "downloading": False,
+    }

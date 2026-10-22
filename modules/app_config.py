@@ -14,10 +14,9 @@ TRACKING_LOST_THRESHOLD = 30.0
 # Distance (m) -> forward cruise speed (m/s). Distances past the last
 # breakpoint are capped at FOLLOW_MAX_SPEED_MPS.
 FOLLOW_SPEED_PROFILE = [
-    (2.0, 0.0),   # <= 2.0 m  -> 0.0 m/s
-    (3.0, 0.3),   # 2.0-3.0 m -> 0.3 m/s
-    (5.0, 0.6),   # 3.0-5.0 m -> 0.6 m/s
-    (8.0, 1.0),   # 5.0-8.0 m -> 1.0 m/s
+    (3.0, 0.3),   # 3.0-5.0 m -> 0.3 m/s
+    (5.0, 0.6),   # 5.0-8.0 m -> 0.6 m/s
+    (8.0, 1.0),   # 8.0+ m    -> 1.0 m/s
 ]                 # > 8.0 m   -> FOLLOW_MAX_SPEED_MPS
 FOLLOW_MAX_SPEED_MPS = 1.0
 FOLLOW_MIN_SPEED_MPS = 0.0
@@ -36,7 +35,7 @@ FOLLOW_MAX_DETECTION_AGE_S = 0.5
 # H < FOLLOW_DISTANCE - DISTANCE_TOLERANCE -> TOO_CLOSE (move backward at
 # FOLLOW_REVERSE_SPEED), H > FOLLOW_DISTANCE + DISTANCE_TOLERANCE -> TOO_FAR
 # (forward), otherwise HOLD (zero forward speed).
-FOLLOW_DISTANCE = 3.0
+FOLLOW_DISTANCE = 2.5
 DISTANCE_TOLERANCE = 0.5
 # Fixed reverse (backward) cruise speed used for TOO_CLOSE. Deliberately not
 # proportional to how close the target is.

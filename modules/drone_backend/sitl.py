@@ -10,10 +10,8 @@ try:
 except ImportError:  # pragma: no cover - dependency may be absent during static checks
     mavutil = None
 
-from modules.drone_backend import log_download
 from modules.drone_backend import servo_channels
 from modules.logging_util import log as _log
-
 
 _master = None
 _state_lock = threading.Lock()
@@ -90,19 +88,8 @@ _RC_CHANNEL_FIELDS = servo_channels.build_servo_field_map("chan")
 
 # DataFlash log recording. ArduPilot writes its own log and opens a new one on
 # every arm; this app pulls the just-closed log off the vehicle over MAVLink
-# when the session ends, Mission-Planner style (see log_download.py). The
-# download runs on its own thread so the live telemetry listener keeps the
-# shared socket, and it is started on the arm rising-edge and drained on disarm.
-_log_download_enabled = False
-_log_download_dir = None
-_log_download_thread = None
-_log_download_running = False
-# Wall-clock time the vehicle last armed. The session's log is the one the FCU
-# opened at or after this instant; ``None`` means "no arm observed", in which
-# case every log is downloaded.
-_log_download_armed_at = None
-_log_download_lock = threading.Lock()
 
+_log_download_lock = threading.Lock()
 
 def _require_mavlink():
     if mavutil is None:
@@ -111,12 +98,10 @@ def _require_mavlink():
             "Install it before using --mode sitl."
         )
 
-
 def _get_master():
     if _master is None:
         raise RuntimeError("SITL backend is not connected. Call connect_drone() first.")
     return _master
-
 
 def _wait_command_ack(command_id, timeout=5.0):
     master = _get_master()
@@ -129,7 +114,6 @@ def _wait_command_ack(command_id, timeout=5.0):
             return msg
         time.sleep(0.1)
     return None
-
 
 def _wait_for_arm_state(expected: bool, timeout: float = 20.0, poll: float = 0.1):
     """Wait until the FCU heartbeat reports the expected arm state.
@@ -153,13 +137,11 @@ def _wait_for_arm_state(expected: bool, timeout: float = 20.0, poll: float = 0.1
         f"(status: {_last_status_text or 'unknown'}) - check the pre-arm checks"
     )
 
-
 def _status_tail(count=3):
     """The last few FCU status messages, newest last - far more useful than a
     single line when the autopilot fails something asynchronously."""
     with _telemetry_lock:
         return " | ".join(_status_history[-count:])
-
 
 def _set_mode(mode_name, timeout=5.0):
     """Request a flight mode and confirm the vehicle actually switched.
@@ -232,7 +214,6 @@ def _set_mode(mode_name, timeout=5.0):
         f"(still reporting {seen})"
     )
 
-
 def _wait_for_mode(mode_name, timeout=10.0):
     """Block until the vehicle's own heartbeat reports ``mode_name``.
 
@@ -247,7 +228,6 @@ def _wait_for_mode(mode_name, timeout=10.0):
                 return True
         time.sleep(0.1)
     return False
-
 
 def _message_listener():
     global _message_listener_running, _cached_lat, _cached_lon, _cached_alt
@@ -292,14 +272,7 @@ def _message_listener():
                     was_armed = _cached_armed
                     _cached_armed = now_armed
                     _cached_mode = mode_name or "UNKNOWN"
-                # DataFlash recording is keyed on the arm event, not on the ARM
-                # button: an arm from the SGC, an RC switch or Mission Planner
-                # all start a log on the FCU, and the app should fetch that log
-                # regardless of which one armed the vehicle.
-                if now_armed and not was_armed:
-                    _on_vehicle_armed()
-                elif was_armed and not now_armed:
-                    _on_vehicle_disarmed()
+                # DataFlash recording removed.
                 _check_override_guard(mode_name)
             elif mtype == "GLOBAL_POSITION_INT":
                 with _telemetry_lock:
@@ -337,11 +310,9 @@ def _message_listener():
         except Exception:
             time.sleep(0.1)
 
-
 def _mode_id_to_name(type_id, custom_mode):
     table = mavutil.AP_MAV_TYPE_MODE_MAP.get(type_id, {})
     return table.get(custom_mode)
-
 
 def _cache_pwm(msg, fields, cache_name):
     """Merge a PWM telemetry report into one of the module caches.
@@ -363,7 +334,6 @@ def _cache_pwm(msg, fields, cache_name):
         stamps = _servo_pwm_at if cache_name == "_servo_pwm" else _rc_channels_at
         for channel in values:
             stamps[channel] = now
-
 
 def _request_message_intervals(master):
     # STATUSTEXT is deliberately absent. ArduPilot broadcasts it on change but
@@ -391,7 +361,6 @@ def _request_message_intervals(master):
             0, 0, 0, 0, 0,
         )
 
-
 def _heartbeat_loop():
     """Keep the GCS link alive so the FCU does not treat us as lost.
 
@@ -412,7 +381,6 @@ def _heartbeat_loop():
             except Exception:
                 pass
         time.sleep(1.0)
-
 
 def _start_sitl_auto():
     global _sitl_process
@@ -440,7 +408,6 @@ def _start_sitl_auto():
         raise RuntimeError("SITL process exited immediately. Check WSL ArduPilot installation.")
     print("[SITL] Waiting for vehicle to initialize...")
 
-
 def _stream_sitl_output(proc):
     for line in iter(proc.stdout.readline, b""):
         try:
@@ -449,7 +416,6 @@ def _stream_sitl_output(proc):
                 print(f"[SITL] {text}")
         except Exception:
             pass
-
 
 def stop_sitl():
     global _sitl_process
@@ -461,7 +427,6 @@ def stop_sitl():
             _sitl_process.kill()
         _sitl_process = None
         print("[SITL] SITL process stopped")
-
 
 def _wait_for_servo_params(master, timeout=15.0, settle=0.4):
     """Block until the parameter stream has settled enough to read servo data.
@@ -505,7 +470,6 @@ def _wait_for_servo_params(master, timeout=15.0, settle=0.4):
 
     return seen_function
 
-
 def _read_servo_limits(params, functions):
     """Read the MIN/TRIM/MAX ranges needed to predict mapped output PWM.
 
@@ -531,7 +495,6 @@ def _read_servo_limits(params, functions):
         if rc_range is not None:
             limits[("RC", rc_input)] = rc_range
     return limits
-
 
 def _discover_servo_channels(master):
     """Ask the autopilot what its servo outputs are wired to.
@@ -592,7 +555,6 @@ def _discover_servo_channels(master):
         print(f"[SERVO] Camera gimbal detected on channel {channel} ({label})")
         _report_mapped_scaling(channel, functions, limits)
 
-
 def _report_mapped_scaling(channel, functions, limits):
     """Warn when a mapped output rescales its RC input.
 
@@ -627,7 +589,6 @@ def _report_mapped_scaling(channel, functions, limits):
         f"values for a 1:1 mapping."
     )
 
-
 def _record_servo_status(**fields):
     """Merge one servo command's outcome into the reportable status block.
 
@@ -648,7 +609,6 @@ def _record_servo_status(**fields):
         _servo_status.update(fields)
         _servo_status["limits_hit"] = limits_hit
 
-
 def get_servo_status():
     """What the vehicle did with the last servo command.
 
@@ -668,7 +628,6 @@ def get_servo_status():
         "limits_hit": bool(status.get("limits_hit")),
     }
 
-
 def get_servo_channels():
     """Discovered servo output assignments as ``{channel: function_name}``."""
     with _telemetry_lock:
@@ -678,7 +637,6 @@ def get_servo_channels():
         for channel, function_id in sorted(functions.items())
         if function_id
     }
-
 
 def get_servo_channel_info():
     """Everything known about the servo outputs, for diagnostics."""
@@ -690,7 +648,6 @@ def get_servo_channel_info():
             "params_loaded": _params_loaded,
             "limits": dict(_servo_limits),
         }
-
 
 def detect_servo_channel(preferred_function=None):
     """The channel a servo command should address, or None if undetermined.
@@ -708,7 +665,6 @@ def detect_servo_channel(preferred_function=None):
         functions, preferred=preferred_function
     )
     return channel
-
 
 def _clear_rc_override(rc_input):
     """Release an RC override by writing the unset value into its slot.
@@ -729,7 +685,6 @@ def _clear_rc_override(rc_input):
         except Exception:
             pass
     _rc_override_inputs.clear()
-
 
 def _release_rc_overrides(trigger):
     """Release every RC input this app has overridden, and why.
@@ -753,7 +708,6 @@ def _release_rc_overrides(trigger):
     _log("SITL", f"RC override released ({trigger})")
     return True
 
-
 def _arm_override_guard(channel, rc_input):
     """Watch for a flight-mode change in the window after an override write.
 
@@ -774,7 +728,6 @@ def _arm_override_guard(channel, rc_input):
         "mode_before": mode_now,
         "armed_at": time.monotonic(),
     }
-
 
 def _check_override_guard(mode_name):
     """Called on every mode report; releases the override if the mode moved."""
@@ -801,7 +754,6 @@ def _check_override_guard(mode_name):
     )
     _log("SITL", reason)
     _record_servo_status(refused=True, refusal_reason=reason)
-
 
 def _reread_servo_assignment(master, channel, functions):
     """Re-read ``SERVOx_FUNCTION`` from the vehicle when the cache has no answer.
@@ -837,7 +789,6 @@ def _reread_servo_assignment(master, channel, functions):
         f"parameter stream - the discovery cache was stale."
     )
     return function_id, merged
-
 
 def _send_servo_command(channel, pulse, allow_rc_override=False):
     """Command one output, by whatever mechanism its assignment allows.
@@ -1004,7 +955,6 @@ def _send_servo_command(channel, pulse, allow_rc_override=False):
         f"surface that is not a camera."
     )
 
-
 def _verify_servo_pulse(channel, pulse, timeout=2.0, since=None):
     """Compare the commanded pulse against SERVO_OUTPUT_RAW.
 
@@ -1051,7 +1001,6 @@ def _verify_servo_pulse(channel, pulse, timeout=2.0, since=None):
         time.sleep(0.05)
     return None
 
-
 def _expected_servo_pulse(channel, pulse):
     """The PWM this output should report after being commanded ``pulse``."""
     with _telemetry_lock:
@@ -1067,7 +1016,6 @@ def _expected_servo_pulse(channel, pulse):
     )
     return predicted if predicted is not None else pulse
 
-
 def _report_pulse_mismatch(channel, commanded, expected, reported):
     note = ""
     if expected != commanded:
@@ -1078,7 +1026,6 @@ def _report_pulse_mismatch(channel, commanded, expected, reported):
     _log("SITL", f"Servo ch{channel} commanded {commanded}us but the vehicle "
                  f"reports {reported}us - check SERVO{channel}_FUNCTION and "
                  f"SERVO{channel}_MIN/MAX{note}")
-
 
 def _check_safety_params(master):
     """Warn loudly about FCU parameters that make autonomous flight unsafe.
@@ -1124,7 +1071,6 @@ def _check_safety_params(master):
     t = threading.Thread(target=work, daemon=True, name="param-check")
     t.start()
     return t
-
 
 def connect_drone(connection_string, waitready=True, baud=57600, start_sitl=False):
     global _master, _log_download_thread, _log_download_armed_at
@@ -1172,7 +1118,6 @@ def connect_drone(connection_string, waitready=True, baud=57600, start_sitl=Fals
 
     return _master
 
-
 def _send_arm(master):
     """Send a force-arm request (MAV_CMD_COMPONENT_ARM_DISARM, param2=21196).
 
@@ -1193,7 +1138,6 @@ def _send_arm(master):
         0,
         0,
     )
-
 
 def arm():
     """Arm the vehicle in GUIDED and wait until the FCU reports it armed.
@@ -1219,14 +1163,8 @@ def arm():
     _send_arm(master)
     _wait_for_arm_state(True, timeout=20.0)
     with _telemetry_lock:
-        already_armed = _cached_armed
         _cached_armed = True
-    if not already_armed:
-        # The listener normally fires this on the HEARTBEAT edge; calling it
-        # here covers a link where the listener has not yet seen the transition.
-        _on_vehicle_armed()
     _log("SITL", "Vehicle armed")
-
 
 def _send_altitude_hold(height_above_launch, period=0.4):
     """Keep an explicit altitude setpoint alive for the autopilot.
@@ -1266,7 +1204,6 @@ def _send_altitude_hold(height_above_launch, period=0.4):
         0,
     )
     time.sleep(period)
-
 
 def takeoff(max_height, timeout=60.0, hold_tolerance=1.0, stable_seconds=2.0):
     """Climb `max_height` above the launch point and hold it. Must be armed.
@@ -1421,18 +1358,15 @@ def takeoff(max_height, timeout=60.0, hold_tolerance=1.0, stable_seconds=2.0):
         )
     _log("SITL", f"Holding {climbed:.1f} m above launch ({alt:.1f} m AMSL)")
 
-
 def arm_and_takeoff(max_height):
     arm()
     takeoff(max_height)
-
 
 def land():
     master = _get_master()
     _release_rc_overrides("LAND")
     _set_mode("LAND")
     _log("SITL", "Landing")
-
 
 def disarm():
     """Disarm the vehicle and wait for the FCU to report it disarmed.
@@ -1468,14 +1402,8 @@ def disarm():
         )
     _wait_for_arm_state(False)
     with _telemetry_lock:
-        was_armed = _cached_armed
         _cached_armed = False
-    if was_armed:
-        # Mirror of arm(): fetch the just-finalised log even if the listener
-        # missed the falling edge (e.g. it is mid ``recv_match`` on another msg).
-        _on_vehicle_disarmed()
     _log("SITL", "Vehicle disarmed")
-
 
 def send_rtl():
     master = _get_master()
@@ -1483,135 +1411,13 @@ def send_rtl():
     _set_mode("RTL")
     _log("SITL", "RTL initiated")
 
-
 def is_armed():
     with _telemetry_lock:
         return _cached_armed
 
-
 def get_mode():
     with _telemetry_lock:
         return _cached_mode
-
-
-def _default_log_download_dir():
-    """``<repo root>/logs/dataflash``, independent of the launch directory.
-
-    Anchored to the repository root (two levels up from this file) rather than
-    the process working directory, so an IDE run and a shell run from anywhere
-    write to the same place.
-    """
-    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    return os.path.join(repo_root, "logs", "dataflash")
-
-
-def configure_log_download(enabled, directory=None):
-    """Turn DataFlash log recording on/off and set the save directory.
-
-    Safe to call before connecting. ``directory`` defaults to
-    ``<repo root>/logs/dataflash`` (see :func:`_default_log_download_dir`); an
-    explicit value is used as given. When enabled, the directory is created
-    eagerly so the operator can see where logs will land before the first flight.
-    """
-    global _log_download_enabled, _log_download_dir
-    with _log_download_lock:
-        _log_download_enabled = bool(enabled)
-        if directory:
-            _log_download_dir = directory
-        target = _log_download_dir or _default_log_download_dir()
-    if enabled:
-        try:
-            os.makedirs(target, exist_ok=True)
-        except OSError:
-            pass
-
-
-def log_download_dir():
-    """The directory downloads are written to (default ``<repo>/logs/dataflash``)."""
-    with _log_download_lock:
-        directory = _log_download_dir
-    return directory or _default_log_download_dir()
-
-
-def _on_vehicle_armed():
-    """Arm rising-edge: mark the moment the session's log starts.
-
-    The FCU opens its DataFlash log on arm, but its ``LOG_ENTRY`` does not
-    appear in ``LOG_REQUEST_LIST`` until a moment later, so the arm wall-clock
-    time is recorded instead and the session's log is picked out by its
-    timestamp at download time (see :func:`log_download.session_log_entries`).
-    """
-    global _log_download_armed_at
-    with _log_download_lock:
-        if not _log_download_enabled:
-            return
-        _log_download_armed_at = time.time()
-    _log("LOG", "Vehicle armed - DataFlash log will be downloaded on disarm")
-
-
-def _on_vehicle_disarmed():
-    """Arm falling-edge: download the log the vehicle just finalised."""
-    with _log_download_lock:
-        enabled = _log_download_enabled
-    if not enabled:
-        return
-    _start_log_download()
-
-
-def _start_log_download():
-    """Launch the download worker unless one is already running.
-
-    A single worker at a time: the app issues one download pass per disarm, and
-    a second disarm while the first is still running must not open a competing
-    ``recv_match`` on the shared socket.
-    """
-    global _log_download_thread
-    with _log_download_lock:
-        if _log_download_thread is not None and _log_download_thread.is_alive():
-            _log("LOG", "A log download is already running; not starting another")
-            return
-        _log_download_thread = threading.Thread(
-            target=_log_download_worker, name="log-download", daemon=True
-        )
-        _log_download_thread.start()
-
-
-def _log_download_worker():
-    """Download every log the FCU holds; run off the telemetry listener thread."""
-    global _log_download_running
-    master = _master
-    if master is None:
-        return
-    directory = log_download_dir()
-    with _log_download_lock:
-        _log_download_running = True
-    with _log_download_lock:
-        armed_at = _log_download_armed_at
-    _log("LOG", f"Downloading DataFlash logs to {directory}")
-    try:
-        paths, _ = log_download.download_all(
-            master, directory,
-            vehicle_type=_vehicle_type_name(),
-            progress=_log_download_progress,
-            since=armed_at,
-        )
-        if paths:
-            for path in paths:
-                _log("LOG", f"Saved {path}")
-        else:
-            _log("LOG", "No DataFlash logs were downloaded")
-    except Exception as exc:  # a broken download must not kill the thread host
-        _log("LOG", f"Log download failed: {exc}")
-    finally:
-        with _log_download_lock:
-            _log_download_running = False
-
-
-def _log_download_progress(done, total):
-    step = log_download.LOG_DATA_MAX_BYTES * 64
-    if total and (done == total or done % step == 0):
-        _log("LOG", f"{done}/{total} bytes ({100.0 * done / total:.0f}%)")
-
 
 def _vehicle_type_name():
     """A short, path-safe vehicle name for the log filename.
@@ -1622,20 +1428,9 @@ def _vehicle_type_name():
     """
     return "vehicle"
 
-
-def log_download_status():
-    """Current recording config and whether a download is in flight, for the HUD."""
-    return {
-        "enabled": _log_download_enabled,
-        "directory": log_download_dir(),
-        "downloading": _log_download_running,
-    }
-
-
 def get_gps_fix_type():
     with _telemetry_lock:
         return _cached_gps_fix_type
-
 
 def is_ekf_ok():
     with _telemetry_lock:
@@ -1647,12 +1442,10 @@ def is_ekf_ok():
     required = EKF_ATTITUDE | EKF_VELOCITY_HORIZ | EKF_POS_HORIZ_ABS | EKF_POS_VERT_ABS
     return (flags & required) == required
 
-
 def get_EKF_status():
     with _telemetry_lock:
         flags = _cached_ekf_flags
     return f"SITL: EKF flags {flags}"
-
 
 def get_battery_info():
     # Read the listener's cache. A recv_match() here competes with
@@ -1664,14 +1457,12 @@ def get_battery_info():
         return "SITL: Battery status unavailable"
     return f"SITL: Battery {battery_remaining}%"
 
-
 def get_version():
     with _telemetry_lock:
         version = _cached_flight_sw_version
     if version is None:
         return "SITL: Version unavailable"
     return f"SITL: Flight software version {version}"
-
 
 def wait_for_navigation_telemetry(timeout=8.0, poll=0.1):
     """Block until the first GPS_RAW_INT and EKF_STATUS_REPORT have arrived.
@@ -1688,7 +1479,6 @@ def wait_for_navigation_telemetry(timeout=8.0, poll=0.1):
         time.sleep(poll)
     with _telemetry_lock:
         return _gps_seen and _ekf_seen
-
 
 def wait_for_position(timeout=8.0, poll=0.1):
     """Block until the first GLOBAL_POSITION_INT has been cached.
@@ -1709,14 +1499,12 @@ def wait_for_position(timeout=8.0, poll=0.1):
     with _telemetry_lock:
         return _position_seen
 
-
 def telemetry_age():
     """Seconds since any MAVLink message arrived from the vehicle, or None."""
     stamp = _last_telemetry_at
     if stamp == 0.0:
         return None
     return time.monotonic() - stamp
-
 
 def disconnect():
     """Release the MAVLink link and stop the listener.
@@ -1745,16 +1533,13 @@ def disconnect():
         except Exception:
             pass
 
-
 def get_position():
     with _telemetry_lock:
         return _cached_lat, _cached_lon, _cached_alt
 
-
 def get_battery_level():
     with _telemetry_lock:
         return _cached_battery
-
 
 def send_movement_command_YAW(angle):
     """Store the yaw rate the next movement/hold message will carry.
@@ -1770,7 +1555,6 @@ def send_movement_command_YAW(angle):
     global _last_yaw_rate_rad_s
     with _state_lock:
         _last_yaw_rate_rad_s = math.radians(-angle)
-
 
 def send_servo(channel=None, pulse=1500, verify=True, source=None, allow_rc_override=False):
     """Drive one servo output to a pulse width.
@@ -1843,7 +1627,6 @@ def send_servo(channel=None, pulse=1500, verify=True, source=None, allow_rc_over
         )
         raise
 
-
 def hold_position():
     master = _get_master()
     yaw_rate = 0.0
@@ -1870,7 +1653,6 @@ def hold_position():
         0,
         yaw_rate,
     )
-
 
 def send_movement_command_XYA(x, y, altitude):
     master = _get_master()

@@ -27,7 +27,6 @@ lost.
 - [Detection and tracking](#detection-and-tracking)
 - [Distance estimation](#distance-estimation)
 - [Person-follow control](#person-follow-control)
-- [DataFlash log download](#dataflash-log-download)
 - [SGC ground-station link](#sgc-ground-station-link)
 - [Tracker overlay specification](#tracker-overlay-specification)
 - [Camera calibration](#camera-calibration)
@@ -271,8 +270,7 @@ Defined in `autonomous_drone_main.py`. Complete set:
 | `--auto-calibrate` | flag | run chessboard calibration in a background thread |
 | `--chessboard` | `9x6` | chessboard inner corners |
 | `--object-height` | 0.25 | assumed object height for monocular ranging |
-| `--log-download` / `--no-log-download` | on for `flight`, off for `sitl` | live-capture the vehicle DataFlash log over MAVLink from arm to disarm/stop (see [DataFlash log download](#dataflash-log-download)) |
-| `--log-dir` | `<repo root>/logs/dataflash` | directory for captured DataFlash logs |
+
 
 ### `run_config.json` (IDE / Run button defaults)
 
@@ -443,7 +441,7 @@ Autonomous-AI-Drone/
 │   │   ├── calibration.py       # CameraIntrinsics
 │   │   ├── config.py  filter.py  models.py  lidar.py  depth.py
 │   │   └── depth_backend/       # metric_depth (ZoeDepth), synthetic
-│   ├── drone_backend/           # api.py, sitl.py, mock_vehicle.py, log_download.py
+│   ├── drone_backend/           # api.py, sitl.py, mock_vehicle.py
 │   ├── lidar_backend/           # mock LiDAR
 │   ├── visualizer_ui/           # ACTIVE visualizer implementation
 │   └── yolo11_detector/         # model, source, matching, config, api, types
@@ -747,162 +745,6 @@ frame, so `[LOST] Target lost — holding position until re-acquired` (and the 1
 message) reprinted hundreds of times for a single loss. Loss bookkeeping is now driven by
 `follow_cmd.lost` alone, and the message is gated by a `_lost_logged` rising-edge flag, so it prints
 once when the target is lost and re-arms only after the controller reports the target present again.
-
----
-
-## DataFlash log download
-
-ArduPilot writes its own DataFlash log (`.BIN`) to its own storage — an SD card on a real FCU, a
-local file under SITL — and opens a **new log automatically on every arm**, finalising it on
-disarm. There is no MAVLink message that "starts recording": the FCU already does that. What the
-app adds is the same thing Mission Planner's *Download DataFlash Log Via MAVLink* does — pulling
-that log off the vehicle over the link, so the flight log survives even when the SD card is not
-coming back with the airframe.
-
-**Live capture, not a one-shot download.** A log that is only fetched *after* a clean disarm is lost
-the moment the flight does not end cleanly — a crash, a power cut, a kill, or a dropped MAVLink
-link. The capture therefore runs in **two phases**. While the vehicle is **armed** the current log is
-**streamed** over MAVLink (ArduPilot's `REMOTE_LOG_*` backend), written to one file as it is written
-by the FCU, so whatever has arrived is **already on disk** at every instant — the crash-safe copy. On
-**disarm** the worker makes a second, **exact** pass: with the vehicle no longer armed the FCU answers
-the ordinary `LOG_*` download, so the finalised log is pulled byte-for-byte (recovering the true
-length — the streamed tail is zero-padded — and the FCU log id for the filename) and the streamed file
-is replaced by it. On link loss and on shutdown the worker stops the live phase and still attempts the
-final pass.
-
-**Live streaming needs `LOG_BACKEND_TYPE`.** The streamed phase requires **bit 1 ("MAVLink")** of the
-FCU parameter `LOG_BACKEND_TYPE` to be set (and a non-zero `LOG_MAV_BUFSIZE` ring buffer). Without it
-the FCU never answers the stream, the live phase captures nothing, and only the post-disarm `LOG_*`
-pull works — i.e. a flight that ends badly is lost. On a **SITL** link the app enables the bit for the
-session: `_check_mavlink_log_backend()` reads the parameter once and, when the bit is clear, OR-s it
-in (`LOG_BACKEND_TYPE | 2`) with a RAM-only parameter write — nothing is persisted, so a reboot
-restores the FCU's own value, and bit 0 (file/SD logging) is left untouched so the FCU keeps writing
-its own DataFlash log. On a **real** FCU the app never writes: it only logs a `[LOG]` warning naming
-the value to set (`LOG_BACKEND_TYPE | 2`), because silently changing a flight controller's logging
-config is not its place.
-
-**Trigger.** Recording is keyed on the **arm event**, not on the ARM button or on a disarm: an arm
-from the SGC, an RC switch, or Mission Planner all start a log on the FCU, and the app records it
-regardless of which one armed the vehicle. `modules/drone_backend/sitl.py:_message_listener` watches
-the `HEARTBEAT` arm bit: on the false→true edge `_on_vehicle_armed()` records the arm wall-clock time
-and starts the capture worker; on the true→false edge `_on_vehicle_disarmed()` asks the worker to
-finish. `arm()` / `disarm()` fire the same hooks, so a link where the listener is mid-`recv_match`
-still records. `disconnect()`, a link gone silent for `_log_download_link_timeout_s` (4 s), and an
-`atexit` hook all stop the capture the same way — flush and keep the file.
-
-**Protocol** (`modules/drone_backend/log_download.py`). Two protocols, one per phase.
-
-*Streamed phase* (armed; the crash-safe copy), following MAVProxy's `_stream_log`:
-
-1. Send `REMOTE_LOG_BLOCK_STATUS(seqno=MAV_REMOTE_LOG_DATA_BLOCK_START=2147483646, status=0)` to
-   signal readiness. The FCU then **pushes** `REMOTE_LOG_DATA_BLOCK` messages, **200 log bytes
-   each**, tagged with the `seqno` of the block (block `n` holds bytes `n*200 ..`).
-2. Each block is written at `seqno * 200` — its own offset, so arrival order is irrelevant — and
-   flushed, so the file is correct and on disk at every instant. Every block is acknowledged with
-   `REMOTE_LOG_BLOCK_STATUS(seqno, status=ACK=1)`.
-3. A gap in the `seqno` set means a block was lost; it is NACKed (`status=NACK=0`) so the FCU
-   re-sends it. Only the seqnos below the highest received are re-requested, bounded by
-   `STREAM_MISSING_PASSES` so a permanently-lost block cannot loop forever.
-4. The loop ends when `should_stop()` turns true (disarm, link loss, shutdown); it then sends
-   `REMOTE_LOG_BLOCK_STATUS(seqno=STOP=2147483645)`.
-
-*Pulled phase* (disarmed; the exact copy), following MAVProxy's reference module:
-
-1. `LOG_REQUEST_LIST(start=0, end=0xFFFF)` asks the autopilot to enumerate its logs; it answers
-   with one `LOG_ENTRY` per log (id, size, `time_utc`). The request is sent twice, because the
-   first request on a fresh link is easily lost.
-2. For each log, **one** `LOG_REQUEST_DATA(id, ofs, count=LOG_STREAM_COUNT=0xFFFFFFFF)` is sent.
-   ArduPilot then **streams** the whole log back as a burst of `LOG_DATA` messages in 90-byte
-   blocks; it does not expect a request per chunk. Issuing a fresh small request for every chunk
-   instead makes the FCU fragment and interleave replies, which stalls the download a few hundred
-   bytes in.
-3. Every `LOG_DATA` reply carries the offset its bytes belong at, and the writer **seeks to that
-   offset** before writing — arrival order is never trusted. A re-sent or out-of-order reply lands
-   in the right place instead of shifting later bytes. Blocks that never arrived are re-requested in
-   a batch (mirroring MAVProxy's `handle_log_data_missing`), so a lossy link still finishes.
-4. Completion is judged by **file coverage**: a pass ends when every byte the FCU advertised has
-   arrived and no full 90-byte block below it is missing. A block whose bytes were covered by an
-   overlapping reply, or the final partial block, is not a hole. (Trusting the in-memory block set
-   alone re-requested forever on an 8.6 MB log whose size had been reached.)
-
-   This offset-authoritative write is what makes the file a valid DataFlash log. Earlier bugs
-   produced files that looked plausible but were rejected by
-   [plot.ardupilot.org](https://plot.ardupilot.org/) because the `0xA3` frame markers no longer sat
-   on the boundaries the `FMT` table declared: appending chunks in arrival order (one duplicated or
-   short reply shifted every byte after it) and accepting stale asynchronous replies (the download
-   stalled near the start). `tests/test_log_download.py` exercises short-reply, duplicate-reply and
-   stale-reply autopilots and asserts the result walks cleanly under strict DataFlash framing and
-   parses under `pymavlink.DFReader` — the parser plot uses.
-
-**Two phases, one worker.** `_log_download_worker()` runs the streamed phase first
-(`stream_current_log`, interruptible by `should_stop`), then the pulled phase
-(`_finalise_log_download` → `download_log(..., live=False, resume=False, should_stop=None)`). The
-final pass must **not** be handed `should_stop`: `download_log` checks it before its first read, so
-on the already-stopped final pass it would break out with zero bytes and delete the file — the
-disarm-time "no log captured" bug. If the pull succeeds it supersedes the streamed file (which is
-removed, since the pulled copy is byte-exact and carries the FCU id in its name); if the FCU lists no
-log the streamed file is kept; if the FCU listed a log but the pull failed, the streamed file is
-`truncate_streamed_log()`-ed to the now-known `LOG_ENTRY.size` to remove the zero padding. An
-exception in either phase is logged and the other still runs, so a broken stream never loses the
-pulled log and vice versa.
-
-**Which log.** `time_utc` on each `LOG_ENTRY` identifies the log opened at or after the recorded
-arm time, so only the session's log is captured. SITL and some FCUs report `time_utc = 0` until the
-clock is set; when no entry carries a usable stamp the filter falls back to the newest log rather
-than silently fetching nothing. A 2 s negative slack absorbs ground-station/FCU clock skew.
-
-**Where.** Files land in `<repo root>/logs/dataflash/` by default — the path is anchored to the
-repository root, not the working directory, so an IDE run and a shell run from anywhere write to the
-same place. The directory is created as soon as recording is enabled, so it is visible before the
-first flight. Files are named `<vehicle>-<id>-<YYYYMMDD-HHMMSS>.bin` — recognisably
-Mission-Planner-like, with the FCU log id so two sessions on the same vehicle never collide. A live
-capture session stamps the name with the **arm** time, so every catch-up pass writes the same file.
-Override the directory with `--log-dir` (or `"log_dir"` in `run_config.json`).
-
-**Enable/disable.** On for `--mode flight` by default (offloading the SD log over telemetry is the
-point), off for `--mode sitl` (the simulator's log already sits on local disk). `--log-download` /
-`--no-log-download` (or `"log_download"` in `run_config.json`) overrides that. The backend API is
-`drone.configure_log_download(enabled, directory=...)`, with `drone.log_download_status()` reporting
-`{enabled, directory, downloading}` for a HUD/telemetry.
-
-**One owner of the socket.** The telemetry listener is the *only* thread that reads the MAVLink
-socket; the capture worker never calls `recv_match` on it. This is not tidiness but correctness:
-`pymavlink.recv_match` **discards** any message whose type is not in the caller's filter, so two
-threads calling it on one socket with different filters silently steal and throw away each other's
-messages. When the worker did read the socket directly, the listener swallowed the streamed
-`LOG_DATA` (and the worker swallowed telemetry), so a live pass saw zero bytes and a flight that
-ended abruptly saved nothing — the exact case the live capture exists for. The listener now
-whitelists `LOG_ENTRY` / `LOG_DATA` / `REMOTE_LOG_DATA_BLOCK` and pushes them onto a queue; the worker
-drives the whole protocol through `_LogMessageSource`, a `master`-shaped wrapper whose `recv_match`
-serves only that queue while `mav` / targets delegate to the real connection.
-`tests/test_log_download.py` pins this: the worker is asserted never to touch the socket's
-`recv_match`.
-
-**Bandwidth.** The capture shares the MAVLink link with live telemetry and the follow loop. The
-streamed phase is paced by the FCU itself — it pushes 200-byte blocks and the receiver only acks — so
-it is as gentle as the `LOG_MAV_BUFSIZE` ring allows. The pulled phase requests the whole log in one
-shot (the FCU streams it back) rather than hammering the link, and sleeps `_log_download_interval`
-between any retries. A `CHUNK_TIMEOUT_S` (5 s) silence ends a pass instead of hanging.
-
-**Session bounds.** One capture worker runs at a time; a second arm while one is still draining is
-ignored. On arm the queued log replies are drained, so a late `LOG_DATA` (or `REMOTE_LOG_DATA_BLOCK`)
-for the previous session's log cannot be read as this one's. A disarm does not give up after a single
-look: the worker retries entry enumeration for a bounded window, because the FCU finalises and
-re-lists the log on disarm. `disconnect()` stops the worker and joins it (bounded at 10 s) before
-closing the port, so shutdown cannot pull the socket out from under it. Every step logs under the
-`[LOG]` tag.
-
-**Log size is approximate.** `LOG_ENTRY.size` is documented by ArduPilot as possibly-inaccurate, so
-the download never treats a *short* file as doomed and never trusts `size` as a hard stop: a pass
-stops at full coverage, and a log that is *exactly* `size` bytes ends cleanly rather than losing its
-final frame.
-
-**Validation.** A downloaded log is accepted by `pymavlink.DFReader` — the parser
-[plot.ardupilot.org](https://plot.ardupilot.org/) uses — which is the test that matters. Note that
-the default *fast* indexer (`dfindexer`) segfaults on some large logs; validate with
-`PYMAVLINK_FAST_INDEX=0`. Verified live: a field reference log (2.9 MB) and downloaded autopilot
-logs (up to 7 MB) parse cleanly. An **interrupted** capture ends with a partial trailing frame, which
-`DFReader` tolerates by ignoring it.
 
 ---
 

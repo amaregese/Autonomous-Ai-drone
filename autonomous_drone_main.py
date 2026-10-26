@@ -154,12 +154,6 @@ parser.add_argument('--allow-rc-override', action='store_true',
                          'default: an override writes RC *inputs*, and ArduPilot reads some '
                          'of them straight into flight control. Only enable this after '
                          'confirming the mapped input is spare on this vehicle')
-_add_flag(parser, '--log-download', '--no-log-download', 'log_download', None,
-          'Download the vehicle DataFlash log over MAVLink after each disarm '
-          '(default: on for flight, off for sitl)')
-parser.add_argument('--log-dir', type=str, default=_default('log_dir', None),
-                    help='Directory for downloaded DataFlash logs '
-                         '(default: logs/dataflash under the working directory)')
 
 args = parser.parse_args()
 _SGC_HOST_FROM_CLI = any(
@@ -169,13 +163,6 @@ if _RUN_DEFAULTS:
     print(f"[CONFIG] defaults from {config_source()} "
           f"(command-line flags still win; --help lists every option)")
 modules.app_config.OBJECT_HEIGHT = args.object_height
-
-# DataFlash log recording: on for a real flight by default, off for SITL (the
-# simulator's log already sits on local disk). An explicit --log-download /
-# --no-log-download, or a "log_download" key, wins over that default.
-if args.log_download is None:
-    args.log_download = (args.mode == 'flight')
-drone.configure_log_download(args.log_download, directory=args.log_dir)
 
 
 tracking_session = TrackingSession()
